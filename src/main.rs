@@ -203,6 +203,7 @@ fn main() {
   ccsds_thread.join().unwrap();
 }
 
+// dark theme from codz01 (https://github.com/ocornut/imgui/issues/707)
 fn set_style_dark(style: &mut ImGuiStyle) {
     style.frame_border_size = 1.0;
     style.frame_padding = ImVec2::new(4.0,2.0);
@@ -269,7 +270,7 @@ fn set_style_dark(style: &mut ImGuiStyle) {
             ImVec4::new(0.80, 0.80, 0.80, 0.35), // ImGuiCol_ModalWindowDimBg 
         ];
 }
-
+// light green from @ebachard (https://github.com/ocornut/imgui/issues/707)
 fn set_style_light(style: &mut ImGuiStyle) {
     style.window_rounding     = 2.0;
     style.scrollbar_rounding  = 3.0;
@@ -374,6 +375,8 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
 
   let mut exit_gui = false;
 
+  let input_settings: StreamSettings = Default::default();
+
   let mut input_selection: i32 = 1;
 
   let mut input_file_name: ImString = ImString::with_capacity(256);
@@ -448,6 +451,9 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
                       Some(StreamOption::File) => {
                             ui.text(im_str!("Select Input File Parameters:"));
                             ui.input_text(im_str!("File Name"), &mut input_file_name).build();
+                            input_settings.file.file_name.clear();
+                            input_settings.file.file_name.push_str(input_file_name);
+
                         },
 
                       Some(StreamOption::Udp) => {
