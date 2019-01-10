@@ -13,4 +13,8 @@ imgui-opengl-renderer = "0.3"
 bytes = "0.4"
 byteorder = "1.2"
 
+num        = "0.2"
+num-traits = "0.2"
+num-derive = "0.2"
+
 ccsds_primary_header="0.4"

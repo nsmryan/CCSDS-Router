@@ -3,6 +3,9 @@ extern crate ccsds_primary_header;
 extern crate bytes;
 extern crate byteorder;
 
+extern crate num;
+#[macro_use] extern crate num_derive;
+
 extern crate sdl2;
 extern crate imgui;
 extern crate imgui_sdl2;
@@ -35,6 +38,7 @@ const WINDOW_HEIGHT: f32 = 480.0;
 
 type Apid = u16;
 
+#[derive(FromPrimitive)]
 enum StreamOption {
     File      = 1,
     TcpClient = 2,
@@ -43,25 +47,30 @@ enum StreamOption {
 }
 
 /* Input Streams */
+#[derive(Default)]
 struct FileSettings {
     file_name: String,
 }
 
+#[derive(Default)]
 struct TcpClientSettings {
     port: u16,
     ip: String,
 }
 
+#[derive(Default)]
 struct TcpServerSettings {
     port: u16,
     ip: String,
 }
 
+#[derive(Default)]
 struct UdpSettings {
     port: u16,
     ip: String,
 }
 
+#[derive(Default)]
 struct StreamSettings {
     file: FileSettings,
     tcp_client: TcpClientSettings,
@@ -79,19 +88,11 @@ enum Stream {
 /* Packet Data */
 type PacketHistory = HashMap<Apid, PacketStats>;
 
+#[derive(Default)]
 struct PacketStats {
     apid: Apid,
     packet_count: u16,
     byte_count: u32,
-}
-
-impl Default for PacketStats {
-
-    fn default() -> PacketStats {
-      PacketStats { apid: 0,
-                    packet_count: 0,
-                    byte_count: 0 }
-    }
 }
 
 struct PacketUpdate {
@@ -116,8 +117,8 @@ enum ProcessingMsg {
 fn open_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Stream {
     let stream: Stream;
     match input_option {
-        StreamOption::File      => {
-           let outfile = File::create(input_settings.file.file_name).unwrap();
+        StreamOption::File => {
+           let outfile = File::create(input_settings.file.file_name.clone()).unwrap();
             stream = Stream::File(outfile);
         },
 
@@ -145,10 +146,10 @@ fn open_stream(input_settings: &StreamSettings, input_option: StreamOption) -> S
           }
         },
 
-        StreamOption::Udp       => {
+        StreamOption::Udp => {
           let addr = SocketAddrV4::new(input_settings.udp.ip.parse().unwrap(),
                                        input_settings.udp.port);
-          stream = Stream::Udp((UdpSocket::bind(&addr).expect("couldn't bind to udp address/port"), addr));
+          stream = Stream::Udp((UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to udp address/port"), addr));
         },
     }
 
@@ -184,18 +185,14 @@ fn main() {
   let bytes = Bytes::from(byte_vec);
   let mut buf = bytes.into_buf();
 
-  /* UDP Socket */
-  let sock = UdpSocket::bind("127.0.0.1:8000").expect("couldn't bind to address");
-
   let (sender, receiver) = channel::<ProcessingMsg>();
 
-  let addr = SocketAddrV4::new("127.0.0.1".parse().unwrap(),
-                               8001);
+  let mut stream_settings: StreamSettings = Default::default();
 
-  let mut stream = Stream::Udp((sock, addr));
+  stream_settings.udp.port = 8001;
+  stream_settings.udp.ip = "127.0.0.1".to_string();
 
-  //let stream_settings: StreamSettings = Default::default();
-  //let mut stream = open_stream(&stream_settings, StreamOption::Udp);
+  let mut stream = open_stream(&stream_settings, StreamOption::Udp);
 
   let ccsds_thread = thread::spawn(move || {
       stream_ccsds( &mut buf, &mut stream, sender );
@@ -204,6 +201,140 @@ fn main() {
   run_gui(receiver);
 
   ccsds_thread.join().unwrap();
+}
+
+fn set_style_dark(style: &mut ImGuiStyle) {
+    style.frame_border_size = 1.0;
+    style.frame_padding = ImVec2::new(4.0,2.0);
+    style.item_spacing = ImVec2::new(8.0,2.0);
+    style.window_border_size = 1.0;
+    //style.tab_border_size = 1.0;
+    style.window_rounding = 1.0;
+    style.child_rounding = 1.0;
+    style.frame_rounding = 1.0;
+    style.scrollbar_rounding = 1.0;
+    style.grab_rounding = 1.0;
+
+    style.colors =
+        [
+            ImVec4::new(1.00, 1.00, 1.00, 0.95), // ImGuiCol_Text 
+            ImVec4::new(0.50, 0.50, 0.50, 1.00), // ImGuiCol_TextDisabled 
+            ImVec4::new(0.13, 0.12, 0.12, 1.00), // ImGuiCol_WindowBg 
+            ImVec4::new(1.00, 1.00, 1.00, 0.00), // ImGuiCol_ChildBg 
+            ImVec4::new(0.05, 0.05, 0.05, 0.94), // ImGuiCol_PopupBg 
+            ImVec4::new(0.53, 0.53, 0.53, 0.46), // ImGuiCol_Border 
+            ImVec4::new(0.00, 0.00, 0.00, 0.00), // ImGuiCol_BorderShadow 
+            ImVec4::new(0.00, 0.00, 0.00, 0.85), // ImGuiCol_FrameBg 
+            ImVec4::new(0.22, 0.22, 0.22, 0.40), // ImGuiCol_FrameBgHovered 
+            ImVec4::new(0.16, 0.16, 0.16, 0.53), // ImGuiCol_FrameBgActive 
+            ImVec4::new(0.00, 0.00, 0.00, 1.00), // ImGuiCol_TitleBg 
+            ImVec4::new(0.00, 0.00, 0.00, 1.00), // ImGuiCol_TitleBgActive 
+            ImVec4::new(0.00, 0.00, 0.00, 0.51), // ImGuiCol_TitleBgCollapsed 
+            ImVec4::new(0.12, 0.12, 0.12, 1.00), // ImGuiCol_MenuBarBg 
+            ImVec4::new(0.02, 0.02, 0.02, 0.53), // ImGuiCol_ScrollbarBg 
+            ImVec4::new(0.31, 0.31, 0.31, 1.00), // ImGuiCol_ScrollbarGrab 
+            ImVec4::new(0.41, 0.41, 0.41, 1.00), // ImGuiCol_ScrollbarGrabHovered 
+            ImVec4::new(0.48, 0.48, 0.48, 1.00), // ImGuiCol_ScrollbarGrabActive 
+            ImVec4::new(0.79, 0.79, 0.79, 1.00), // ImGuiCol_CheckMark 
+            ImVec4::new(0.48, 0.47, 0.47, 0.91), // ImGuiCol_SliderGrab 
+            ImVec4::new(0.56, 0.55, 0.55, 0.62), // ImGuiCol_SliderGrabActive 
+            ImVec4::new(0.50, 0.50, 0.50, 0.63), // ImGuiCol_Button 
+            ImVec4::new(0.67, 0.67, 0.68, 0.63), // ImGuiCol_ButtonHovered 
+            ImVec4::new(0.26, 0.26, 0.26, 0.63), // ImGuiCol_ButtonActive 
+            ImVec4::new(0.54, 0.54, 0.54, 0.58), // ImGuiCol_Header 
+            ImVec4::new(0.64, 0.65, 0.65, 0.80), // ImGuiCol_HeaderHovered 
+            ImVec4::new(0.25, 0.25, 0.25, 0.80), // ImGuiCol_HeaderActive 
+            ImVec4::new(0.58, 0.58, 0.58, 0.50), // ImGuiCol_Separator 
+            ImVec4::new(0.81, 0.81, 0.81, 0.64), // ImGuiCol_SeparatorHovered 
+            ImVec4::new(0.81, 0.81, 0.81, 0.64), // ImGuiCol_SeparatorActive 
+            ImVec4::new(0.87, 0.87, 0.87, 0.53), // ImGuiCol_ResizeGrip 
+            ImVec4::new(0.87, 0.87, 0.87, 0.74), // ImGuiCol_ResizeGripHovered 
+            ImVec4::new(0.87, 0.87, 0.87, 0.74), // ImGuiCol_ResizeGripActive 
+            //ImVec4::new(0.01, 0.01, 0.01, 0.86), // ImGuiCol_Tab 
+            //ImVec4::new(0.29, 0.29, 0.29, 1.00), // ImGuiCol_TabHovered 
+            //ImVec4::new(0.31, 0.31, 0.31, 1.00), // ImGuiCol_TabActive 
+            //ImVec4::new(0.02, 0.02, 0.02, 1.00), // ImGuiCol_TabUnfocused 
+            //ImVec4::new(0.19, 0.19, 0.19, 1.00), // ImGuiCol_TabUnfocusedActive 
+            //ImVec4::new(0.38, 0.48, 0.60, 1.00), // ImGuiCol_DockingPreview 
+            //ImVec4::new(0.20, 0.20, 0.20, 1.00), // ImGuiCol_DockingEmptyBg 
+            ImVec4::new(0.61, 0.61, 0.61, 1.00), // ImGuiCol_PlotLines 
+            ImVec4::new(0.68, 0.68, 0.68, 1.00), // ImGuiCol_PlotLinesHovered 
+            ImVec4::new(0.90, 0.77, 0.33, 1.00), // ImGuiCol_PlotHistogram 
+            ImVec4::new(0.87, 0.55, 0.08, 1.00), // ImGuiCol_PlotHistogramHovered 
+            ImVec4::new(0.47, 0.60, 0.76, 0.47), // ImGuiCol_TextSelectedBg 
+            ImVec4::new(0.58, 0.58, 0.58, 0.90), // ImGuiCol_DragDropTarget 
+            ImVec4::new(0.60, 0.60, 0.60, 1.00), // ImGuiCol_NavHighlight 
+            ImVec4::new(1.00, 1.00, 1.00, 0.70), // ImGuiCol_NavWindowingHighlight 
+            ImVec4::new(0.80, 0.80, 0.80, 0.20), // ImGuiCol_NavWindowingDimBg 
+            ImVec4::new(0.80, 0.80, 0.80, 0.35), // ImGuiCol_ModalWindowDimBg 
+        ];
+}
+
+fn set_style_light(style: &mut ImGuiStyle) {
+    style.window_rounding     = 2.0;
+    style.scrollbar_rounding  = 3.0;
+    style.grab_rounding       = 2.0;
+    style.anti_aliased_lines  = true;
+    style.anti_aliased_fill   = true;
+    style.window_rounding     = 2.0;
+    style.child_rounding      = 2.0;
+    style.scrollbar_size      = 16.0;
+    style.scrollbar_rounding  = 3.0;
+    style.grab_rounding       = 2.0;
+    style.item_spacing.x      = 10.0;
+    style.item_spacing.y      = 4.0;
+    style.indent_spacing      = 22.0;
+    style.frame_padding.x     = 6.0;
+    style.frame_padding.y     = 4.0;
+    style.alpha               = 1.0;
+    style.frame_rounding      = 3.0;
+
+    style.colors =
+        [
+            ImVec4::new(0.00, 0.00, 0.00, 1.00), // ImGuiCol_Text
+            ImVec4::new(0.60, 0.60, 0.60, 1.00), // ImGuiCol_TextDisabled
+            ImVec4::new(0.86, 0.86, 0.86, 1.00), // ImGuiCol_WindowBg
+            ImVec4::new(0.00, 0.00, 0.00, 0.00), // ImGuiCol_ChildBg
+            ImVec4::new(0.93, 0.93, 0.93, 0.98), // ImGuiCol_PopupBg
+            ImVec4::new(0.71, 0.71, 0.71, 0.08), // ImGuiCol_Border
+            ImVec4::new(0.00, 0.00, 0.00, 0.04), // ImGuiCol_BorderShadow
+            ImVec4::new(0.71, 0.71, 0.71, 0.55), // ImGuiCol_FrameBg
+            ImVec4::new(0.94, 0.94, 0.94, 0.55), // ImGuiCol_FrameBgHovered
+            ImVec4::new(0.71, 0.78, 0.69, 0.98), // ImGuiCol_FrameBgActive
+            ImVec4::new(0.85, 0.85, 0.85, 1.00), // ImGuiCol_TitleBg
+            ImVec4::new(0.78, 0.78, 0.78, 1.00), // ImGuiCol_TitleBgActive
+            ImVec4::new(0.82, 0.78, 0.78, 0.51), // ImGuiCol_TitleBgCollapsed
+            ImVec4::new(0.86, 0.86, 0.86, 1.00), // ImGuiCol_MenuBarBg
+            ImVec4::new(0.20, 0.25, 0.30, 0.61), // ImGuiCol_ScrollbarBg
+            ImVec4::new(0.90, 0.90, 0.90, 0.30), // ImGuiCol_ScrollbarGrab
+            ImVec4::new(0.92, 0.92, 0.92, 0.78), // ImGuiCol_ScrollbarGrabHovered
+            ImVec4::new(1.00, 1.00, 1.00, 1.00), // ImGuiCol_ScrollbarGrabActive
+            ImVec4::new(0.184, 0.407, 0.193, 1.00), // ImGuiCol_CheckMark
+            ImVec4::new(0.26, 0.59, 0.98, 0.78), // ImGuiCol_SliderGrab
+            ImVec4::new(0.26, 0.59, 0.98, 1.00), // ImGuiCol_SliderGrabActive
+            ImVec4::new(0.71, 0.78, 0.69, 0.40), // ImGuiCol_Button
+            ImVec4::new(0.725, 0.805, 0.702, 1.00), // ImGuiCol_ButtonHovered
+            ImVec4::new(0.793, 0.900, 0.836, 1.00), // ImGuiCol_ButtonActive
+            ImVec4::new(0.71, 0.78, 0.69, 0.31), // ImGuiCol_Header
+            ImVec4::new(0.71, 0.78, 0.69, 0.80), // ImGuiCol_HeaderHovered
+            ImVec4::new(0.71, 0.78, 0.69, 1.00), // ImGuiCol_HeaderActive
+            ImVec4::new(0.39, 0.39, 0.39, 1.00), // ImGuiCol_Separator
+            ImVec4::new(0.14, 0.44, 0.80, 0.78), // ImGuiCol_SeparatorHovered
+            ImVec4::new(0.14, 0.44, 0.80, 1.00), // ImGuiCol_SeparatorActive
+            ImVec4::new(1.00, 1.00, 1.00, 0.00), // ImGuiCol_ResizeGrip
+            ImVec4::new(0.26, 0.59, 0.98, 0.45), // ImGuiCol_ResizeGripHovered
+            ImVec4::new(0.26, 0.59, 0.98, 0.78), // ImGuiCol_ResizeGripActive
+            ImVec4::new(0.39, 0.39, 0.39, 1.00), // ImGuiCol_PlotLines
+            ImVec4::new(1.00, 0.43, 0.35, 1.00), // ImGuiCol_PlotLinesHovered
+            ImVec4::new(0.90, 0.70, 0.00, 1.00), // ImGuiCol_PlotHistogram
+            ImVec4::new(1.00, 0.60, 0.00, 1.00), // ImGuiCol_PlotHistogramHovered
+            ImVec4::new(0.26, 0.59, 0.98, 0.35), // ImGuiCol_TextSelectedBg
+            ImVec4::new(0.26, 0.59, 0.98, 0.95), // ImGuiCol_DragDropTarget
+            ImVec4::new(0.71, 0.78, 0.69, 0.80), // ImGuiCol_NavHighlight 
+            ImVec4::new(0.70, 0.70, 0.70, 0.70), // ImGuiCol_NavWindowingHighlight 
+            ImVec4::new(0.70, 0.70, 0.70, 0.30), // ImGuiCol_NavWindowingHighlight 
+            ImVec4::new(0.20, 0.20, 0.20, 0.35), // ImGuiCol_ModalWindowDarkening
+        ];
 }
 
 fn run_gui(receiver: Receiver<ProcessingMsg>) {
@@ -230,6 +361,8 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
   let mut imgui = imgui::ImGui::init();
   imgui.set_ini_filename(None);
 
+  set_style_dark(imgui.style_mut());
+  //set_style_light(imgui.style_mut());
 
   let mut imgui_sdl2 = imgui_sdl2::ImguiSdl2::new(&mut imgui);
 
@@ -241,9 +374,16 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
 
   let mut exit_gui = false;
 
-  let mut input_selection: i32 = 0;
+  let mut input_selection: i32 = 1;
 
   let mut input_file_name: ImString = ImString::with_capacity(256);
+  let mut udp_ip_addr : ImString = ImString::with_capacity(256);
+  let mut tcp_client_ip_addr : ImString = ImString::with_capacity(256);
+  let mut tcp_server_ip_addr : ImString = ImString::with_capacity(256);
+
+  let mut udp_port : i32 = 8000;
+  let mut tcp_client_port : i32 = 8000;
+  let mut tcp_server_port : i32 = 8000;
 
   let mut bytes_processed: u32 = 0;
   let mut bytes_processed_vec: Vec<f32> = Vec::new();
@@ -291,22 +431,44 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
         .title_bar(false)
         .build(|| {
             /* Source Selection */
-            ui.child_frame(im_str!("Select Input Type"), (WINDOW_WIDTH - 15.0, 75.0))
+            ui.child_frame(im_str!("Select Input Type"), (WINDOW_WIDTH - 15.0, 125.0))
                 .show_borders(true)
                 .build(|| {
                     ui.columns(4, im_str!("SelectInputType"), false);
-                    ui.radio_button(im_str!("File"),       &mut input_selection, 1);
+                    ui.radio_button(im_str!("File"),       &mut input_selection, StreamOption::File as i32);
                     ui.next_column();
-                    ui.radio_button(im_str!("UDP"),        &mut input_selection, 2);
+                    ui.radio_button(im_str!("UDP"),        &mut input_selection, StreamOption::Udp as i32);
                     ui.next_column();
-                    ui.radio_button(im_str!("TCP Client"), &mut input_selection, 3);
+                    ui.radio_button(im_str!("TCP Client"), &mut input_selection, StreamOption::TcpClient as i32);
                     ui.next_column();
-                    ui.radio_button(im_str!("TCP Server"), &mut input_selection, 4);
+                    ui.radio_button(im_str!("TCP Server"), &mut input_selection, StreamOption::TcpServer as i32);
 
                     ui.columns(1, im_str!("default"), false);
-                    if input_selection == 1 {
-                        ui.text(im_str!("Select Input File Parameters:"));
-                        ui.input_text(im_str!("File Name"), &mut input_file_name).build();
+                    match num::FromPrimitive::from_i32(input_selection) {
+                      Some(StreamOption::File) => {
+                            ui.text(im_str!("Select Input File Parameters:"));
+                            ui.input_text(im_str!("File Name"), &mut input_file_name).build();
+                        },
+
+                      Some(StreamOption::Udp) => {
+                            ui.text(im_str!("Select Udp Socket Parameters:"));
+                            ui.input_text(im_str!("IP Address"), &mut udp_ip_addr).build();
+                            ui.input_int(im_str!("Port"), &mut udp_port).build();
+                      },
+
+                      Some(StreamOption::TcpClient) => {
+                            ui.text(im_str!("Select Tcp Client Parameters:"));
+                            ui.input_text(im_str!("IP Address"), &mut tcp_client_ip_addr).build();
+                            ui.input_int(im_str!("Port"), &mut tcp_client_port).build();
+                      },
+
+                      Some(StreamOption::TcpServer) => {
+                            ui.text(im_str!("Select Tcp Server Socket Parameters:"));
+                            ui.input_text(im_str!("IP Address"), &mut tcp_server_ip_addr).build();
+                            ui.input_int(im_str!("Port"), &mut tcp_server_port).build();
+                      },
+
+                      None => {},
                     }
                 });
 
@@ -321,15 +483,43 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
 
                     ui.separator();
 
+                    ui.columns(6, im_str!("PacketStats"), true);
+
                     for packet_stats in packet_history.values() {
                         let mut string = String::from("Apid: ");
-                        string.push_str(&format!("{:>5}", &packet_stats.apid.to_string()));
-                        string.push_str(&format!(", Count: {:>5}", packet_stats.packet_count.to_string()));
                         ui.text(string.as_str());
+
+                        ui.next_column();
+                        string = format!("{:>5}", &packet_stats.apid.to_string());
+                        ui.text(string.as_str());
+
+                        ui.next_column();
+                        let mut string = String::from("Count: ");
+                        ui.text(string.as_str());
+
+                        ui.next_column();
+                        string = format!("{:>5}", packet_stats.packet_count.to_string());
+                        ui.text(string.as_str());
+
+                        ui.next_column();
+                        let mut string = String::from("Bytes: ");
+                        ui.text(string.as_str());
+
+                        ui.next_column();
+                        string = format!("{:>9}", &packet_stats.byte_count.to_string());
+                        ui.text(string.as_str());
+
+                        ui.next_column();
                     }
             });
 
             //ui.plot_lines(im_str!("Bytes Processed"), &bytes_processed_vec[..]).build();
+
+            if ui.small_button(im_str!("Clear Stats")) {
+                packet_history.clear();
+            }
+
+            ui.same_line(0.0);
 
             if ui.small_button(im_str!("Exit")) {
                 exit_gui = true;
