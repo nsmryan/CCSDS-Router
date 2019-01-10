@@ -1,0 +1,16 @@
+[package]
+name = "rust_imgui_sdl"
+version = "0.1.0"
+authors = ["Noah Ryan <noah.m.ryan@nasa.gov>"]
+
+[dependencies]
+imgui-sdl2 = "0.3.1"
+imgui = "0.0.21"
+sdl2 = "0.32.1"
+gl = "0.10.0"
+imgui-opengl-renderer = "0.3"
+
+bytes = "0.4"
+byteorder = "1.2"
+
+ccsds_primary_header="0.4"
