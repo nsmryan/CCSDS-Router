@@ -391,6 +391,8 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
   let mut bytes_processed: u32 = 0;
   let mut bytes_processed_vec: Vec<f32> = Vec::new();
 
+  let mut imgui_str = ImString::with_capacity(256);
+
   'running: loop {
     if exit_gui {
         break 'running;
@@ -450,9 +452,9 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
                     match num::FromPrimitive::from_i32(input_selection) {
                       Some(StreamOption::File) => {
                             ui.text(im_str!("Select Input File Parameters:"));
-                            let mut imgui_str = ImString::new(input_settings.file.file_name.clone());
-                            imgui_str.reserve(256);
                             //ui.input_text(im_str!("File Name"), &mut input_file_name).build();
+                            imgui_str.clear();
+                            imgui_str.push_str(input_settings.file.file_name);
                             ui.input_text(im_str!("File Name"), &mut imgui_str).build();
                             input_settings.file.file_name.clear();
                             input_settings.file.file_name.push_str(&imgui_str.to_str());
