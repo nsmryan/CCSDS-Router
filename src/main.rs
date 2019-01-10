@@ -375,7 +375,7 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
 
   let mut exit_gui = false;
 
-  let input_settings: StreamSettings = Default::default();
+  let mut input_settings: StreamSettings = Default::default();
 
   let mut input_selection: i32 = 1;
 
@@ -450,9 +450,12 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
                     match num::FromPrimitive::from_i32(input_selection) {
                       Some(StreamOption::File) => {
                             ui.text(im_str!("Select Input File Parameters:"));
-                            ui.input_text(im_str!("File Name"), &mut input_file_name).build();
+                            let mut imgui_str = ImString::new(input_settings.file.file_name.clone());
+                            imgui_str.reserve(256);
+                            //ui.input_text(im_str!("File Name"), &mut input_file_name).build();
+                            ui.input_text(im_str!("File Name"), &mut imgui_str).build();
                             input_settings.file.file_name.clear();
-                            input_settings.file.file_name.push_str(input_file_name);
+                            input_settings.file.file_name.push_str(&imgui_str.to_str());
 
                         },
 
@@ -543,7 +546,7 @@ fn run_gui(receiver: Receiver<ProcessingMsg>) {
     window.gl_swap_window();
 
 
-    ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 60));
+    ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 30));
   }
 }
 
