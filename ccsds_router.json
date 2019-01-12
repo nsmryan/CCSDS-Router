@@ -1,0 +1,38 @@
+{
+  "read_config": {
+    "file": {
+      "file_name": "Logged_Data"
+    },
+    "tcp_client": {
+      "port": 0,
+      "ip": ""
+    },
+    "tcp_server": {
+      "port": 0,
+      "ip": ""
+    },
+    "udp": {
+      "port": 0,
+      "ip": ""
+    }
+  },
+  "read_option": "File",
+  "write_config": {
+    "file": {
+      "file_name": ""
+    },
+    "tcp_client": {
+      "port": 0,
+      "ip": ""
+    },
+    "tcp_server": {
+      "port": 0,
+      "ip": ""
+    },
+    "udp": {
+      "port": 8001,
+      "ip": "127.0.0.1"
+    }
+  },
+  "write_option": "Udp"
+}
