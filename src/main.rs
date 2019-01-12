@@ -46,7 +46,7 @@ use stream::*;
 
 
 const WINDOW_WIDTH:  f32 = 640.0;
-const WINDOW_HEIGHT: f32 = 640.0;
+const WINDOW_HEIGHT: f32 = 800.0;
 
 
 type Apid = u16;
@@ -131,7 +131,7 @@ fn main() {
     let (proc_sender, proc_receiver) = channel::<ProcessingMsg>();
 
     let ccsds_thread = thread::spawn(move || {
-        stream_ccsds( gui_sender, proc_receiver );
+        process_thread( gui_sender, proc_receiver );
     });
 
 
@@ -597,6 +597,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
         Ok(_) => {
             // NOTE awkward
             // Wait to receive terminate message from processing thread
+            // should be looking for errors to log.
             while let Ok(_) = receiver.recv_timeout(time::Duration::from_millis(500)) {
             }
         }
@@ -622,7 +623,7 @@ fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImS
 
 
 /* Packet Processing Thread */
-fn stream_ccsds(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
+fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
     let mut packet: Vec<u8> = Vec::with_capacity(4096);
 
     let mut processing = false;
