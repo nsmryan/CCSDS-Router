@@ -33,7 +33,7 @@ use std::fs::create_dir;
 
 use ccsds_primary_header::*;
 
-use byteorder::{LittleEndian};
+use byteorder::{LittleEndian, BigEndian};
 
 use simplelog::*;
 
@@ -46,7 +46,7 @@ use stream::*;
 
 
 const WINDOW_WIDTH:  f32 = 640.0;
-const WINDOW_HEIGHT: f32 = 800.0;
+const WINDOW_HEIGHT: f32 = 740.0;
 
 
 type Apid = u16;
@@ -118,6 +118,7 @@ enum ProcessingMsg {
 fn main() {
     // Set Up Logging
     create_dir("log");
+
     let date = Local::now();
     let log_name = format!("{}", date.format("log/ccsds_router_log_%Y%m%d_%H_%M_%S.log"));
     let logger = CombinedLogger::init(vec!(TermLogger::new(LevelFilter::max(),   Config::default()).unwrap(),
@@ -624,7 +625,10 @@ fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImS
 
 /* Packet Processing Thread */
 fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
-    let mut packet: Vec<u8> = Vec::with_capacity(4096);
+    let mut packet: Packet<LittleEndian>
+        = Packet { header: Default::default(),
+                   bytes: Vec::with_capacity(4096),
+    };
 
     let mut processing = false;
     let mut terminating = false;
@@ -648,11 +652,11 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
                     input_settings  = new_input_settings;
                     output_settings = new_output_settings;
 
-                    match open_read_stream(&input_settings, input_option) {
+                    match open_input_stream(&input_settings, input_option) {
                       Ok(stream) => {
                           in_stream  = stream;
 
-                          match open_write_stream(&output_settings, output_option) {
+                          match open_output_stream(&output_settings, output_option) {
                             Some(stream) => {
                                 out_stream = stream;
                                 processing = true;
@@ -729,19 +733,11 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
             }
 
 
-            stream_send(&mut out_stream, &packet);
+            stream_send(&mut out_stream, &packet.bytes);
 
             /* Report packet to GUI */
-            // NOTE this is an awkward way to read out a header from a Vec<u8>
-            // could have a packet struct of vec<u8> and header
-            let mut header: [u8;6] = [0; 6];
-            for byte_index in 0..6 {
-                header[byte_index] = packet[byte_index];
-            }
-            let pri_header = PrimaryHeader::<LittleEndian>::new(header);
-
-            let packet_update = PacketUpdate { apid: pri_header.control.apid(),
-                                               packet_length: packet.len() as u16,
+            let packet_update = PacketUpdate { apid: packet.header.control.apid(),
+                                               packet_length: packet.bytes.len() as u16,
                                              };
 
             sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();

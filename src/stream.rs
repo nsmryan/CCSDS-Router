@@ -5,7 +5,7 @@ use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddrV4};
 
 use ccsds_primary_header::*;
 
-use byteorder::{LittleEndian};
+use byteorder::{ByteOrder, BigEndian, LittleEndian};
 
 
 #[derive(FromPrimitive, Debug, Copy, Clone, Serialize, Deserialize)]
@@ -71,8 +71,14 @@ pub enum WriteStream {
     Null(),
 }
 
+#[derive(Debug)]
+pub struct Packet<E: ByteOrder> {
+    pub header: PrimaryHeader<E>,
+    pub bytes:  Vec<u8>,
+}
 
-pub fn open_read_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Result<ReadStream, String> {
+
+pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Result<ReadStream, String> {
     let result;
 
     match input_option {
@@ -122,8 +128,9 @@ pub fn open_read_stream(input_settings: &StreamSettings, input_option: StreamOpt
     result
 }
 
-pub fn open_write_stream(output_settings: &StreamSettings, output_option: StreamOption) -> Option<WriteStream> {
+pub fn open_output_stream(output_settings: &StreamSettings, output_option: StreamOption) -> Option<WriteStream> {
     let stream: WriteStream;
+
     match output_option {
         StreamOption::File => {
             let outfile = File::create(output_settings.file.file_name.clone()).unwrap();
@@ -165,59 +172,74 @@ pub fn open_write_stream(output_settings: &StreamSettings, output_option: Stream
     Some(stream)
 }
 
-pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Vec<u8>) -> Result<usize, String> {
+// read a packet from a stream (a file or a TCP stream)
+fn read_packet_from_reader<E, R>(reader: &mut R, packet: &mut Packet<E>) -> Result<usize, String>
+    where E: ByteOrder, R: Read {
+
+    let mut result: Result<usize, String>;
+
+    let mut header_bytes: [u8;6] = [0; 6];
+
+    // read enough bytes for a header
+    match reader.read_exact(&mut header_bytes) {
+        Ok(()) => {
+            packet.header = PrimaryHeader::<E>::new(header_bytes);
+
+            let packet_length = packet.header.packet_length();
+            let data_size = packet_length - CCSDS_PRI_HEADER_SIZE_BYTES;
+
+            // put header in packet buffer, swapping endianness.
+            packet.bytes.clear();
+            packet.bytes.push(header_bytes[1]);
+            packet.bytes.push(header_bytes[0]);
+            packet.bytes.push(header_bytes[3]);
+            packet.bytes.push(header_bytes[2]);
+            packet.bytes.push(header_bytes[5]);
+            packet.bytes.push(header_bytes[4]);
+
+            result = Ok(packet_length as usize);
+
+            // read the rest of the packet
+            for _ in 0..data_size {
+                // NOTE awkward way to read. should get a slice of the vector?
+                let mut byte: [u8;1] = [0; 1];
+                match reader.read_exact(&mut byte) {
+                    Ok(()) => {
+                        packet.bytes.push(byte[0]);
+                    }
+
+                    Err(e) => {
+                        result = Err(format!("Stream Read Error: {}", e));
+                        break;
+                    }
+                }
+            }
+        },
+
+        Err(e) => {
+            result = Err(format!("Stream Read Error: {}", e));
+        },
+    }
+
+    result
+}
+
+pub fn stream_read_packet<E: ByteOrder>(input_stream: &mut ReadStream, packet: &mut Packet<E>) ->
+    Result<usize, String> {
+
     let mut result: Result<usize, String>;
 
     let mut header_bytes: [u8;6] = [0; 6];
 
     match input_stream {
         ReadStream::File(ref mut file) => {
-            // read enough bytes for a header
-            match file.read_exact(&mut header_bytes) {
-                Ok(()) => {
-                    let pri_header = PrimaryHeader::<LittleEndian>::new(header_bytes);
-
-                    let data_size = pri_header.packet_length() - CCSDS_PRI_HEADER_SIZE_BYTES;
-
-                    // put header in packet buffer, swapping endianness.
-                    packet.clear();
-                    packet.push(header_bytes[1]);
-                    packet.push(header_bytes[0]);
-                    packet.push(header_bytes[3]);
-                    packet.push(header_bytes[2]);
-                    packet.push(header_bytes[5]);
-                    packet.push(header_bytes[4]);
-
-                    result = Ok(pri_header.packet_length() as usize);
-
-                    // read the rest of the packet
-                    for _ in 0..data_size {
-                        // NOTE awkward way to read. should get a slice of the vector?
-                        let mut byte: [u8;1] = [0; 1];
-                        match file.read_exact(&mut byte) {
-                            Ok(()) => {
-                                packet.push(byte[0]);
-                            }
-
-                            Err(e) => {
-                                result = Err(format!("File Stream Read Error: {}", e));
-                                break;
-                            }
-                        }
-                    }
-                },
-
-                Err(e) => {
-                    result = Err(format!("File Stream Read Error: {}", e));
-                },
-            }
-
+            result = read_packet_from_reader(file, packet);
         },
 
         ReadStream::Udp(udp_sock) => {
             // for UDP we just read a message, which must contain a CCSDS packet
-            packet.clear();
-            match udp_sock.recv(packet) {
+            packet.bytes.clear();
+            match udp_sock.recv(&mut packet.bytes) {
                 Ok(bytes_read) => {
                     result = Ok(bytes_read);
                 },
@@ -229,14 +251,11 @@ pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Vec<u8>) -
         },
 
         ReadStream::Tcp(tcp_stream) => {
-            // TODO implement for TCP
-            packet.clear();
-            result = Err("TCP is no yet supported".to_string());;
+            result = read_packet_from_reader(tcp_stream, packet);
         },
 
         ReadStream::Null() => {
-            packet.clear();
-            result = Ok(0);
+            result = Err("Reading a Null Stream! This should not happen!".to_string());
         },
     }
 
