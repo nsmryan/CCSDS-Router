@@ -51,6 +51,18 @@ const WINDOW_HEIGHT: f32 = 640.0;
 
 type Apid = u16;
 
+#[derive(Debug, Serialize, Deserialize)]
+enum GuiTheme {
+    Dark,
+    Light,
+}
+
+impl Default for GuiTheme {
+    fn default() -> Self {
+        GuiTheme::Dark
+    }
+}
+
 /* Application Configuration */
 #[derive(Default, Debug, Serialize, Deserialize)]
 struct AppConfig {
@@ -58,6 +70,7 @@ struct AppConfig {
     read_option:  StreamOption,
     write_config: StreamSettings,
     write_option: StreamOption,
+    theme: GuiTheme,
 }
 
 /* Packet Data */
@@ -107,7 +120,10 @@ fn main() {
     create_dir("log");
     let date = Local::now();
     let log_name = format!("{}", date.format("log/ccsds_router_log_%Y%m%d_%H_%M_%S.log"));
-    let logger = WriteLogger::init(LevelFilter::max(), Config::default(), File::create(log_name).unwrap());
+    let logger = CombinedLogger::init(vec!(TermLogger::new(LevelFilter::max(),   Config::default()).unwrap(),
+                                           WriteLogger::new(LevelFilter::max(), Config::default(), File::create(log_name).unwrap())
+                                           )
+                                      ).unwrap();
 
 
     // Spawn processing thread
@@ -357,9 +373,6 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     let mut imgui = imgui::ImGui::init();
     imgui.set_ini_filename(None);
 
-    set_style_dark(imgui.style_mut());
-    //set_style_light(imgui.style_mut());
-
     let mut imgui_sdl2 = imgui_sdl2::ImguiSdl2::new(&mut imgui);
 
     let renderer = imgui_opengl_renderer::Renderer::new(&mut imgui, |s| video.gl_get_proc_address(s) as _);
@@ -392,6 +405,17 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
           config = Default::default();
       },
     }
+
+    match config.theme {
+        GuiTheme::Dark => {
+            set_style_dark(imgui.style_mut());
+        },
+
+        GuiTheme::Light => {
+            set_style_light(imgui.style_mut());
+        },
+    }
+
 
     'running: loop {
         use sdl2::event::Event;
@@ -468,14 +492,14 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
 
                 /* Source Selection */
                 ui.text("Input Settings");
-                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 100.0))
+                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 90.0))
                     .show_borders(true)
                     .build(|| {
                         stream_ui(&ui, &mut config.read_option, &mut config.read_config, &mut imgui_str);
                     });
 
                 ui.text("Output Settings");
-                ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 100.0))
+                ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 90.0))
                     .show_borders(true)
                     .build(|| {
                         stream_ui(&ui, &mut config.write_option, &mut config.write_config, &mut imgui_str);
@@ -526,6 +550,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 if processing == 0 {
                     if ui.small_button(im_str!("Start")) {
                         processing = 1;
+                        info!("Start Processing");
                         sender.send(ProcessingMsg::Start(config.read_config.clone(),
                                                          config.read_option.clone(),
                                                          config.write_config.clone(),
@@ -534,6 +559,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 }
                 else {
                     if ui.small_button(im_str!("Stop ")) {
+                        info!("Stop Processing");
                         processing = 0;
                         sender.send(ProcessingMsg::Stop()).unwrap();
                     }
@@ -542,6 +568,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 ui.same_line(0.0);
 
                 if ui.small_button(im_str!("Clear Stats")) {
+                    info!("Clearing Statistics");
                     packet_history.clear();
                 }
 
@@ -566,7 +593,16 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 30));
     }
 
-    sender.send(ProcessingMsg::Terminate()).unwrap();
+    match sender.send(ProcessingMsg::Terminate()) {
+        Ok(_) => {
+            // NOTE awkward
+            // Wait to receive terminate message from processing thread
+            while let Ok(_) = receiver.recv_timeout(time::Duration::from_millis(500)) {
+            }
+        }
+
+        Err(_) => {},
+    }
 }
 
 /* Gui Input Functions */
@@ -602,13 +638,17 @@ fn stream_ccsds(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
         while !processing {
             let proc_msg = receiver.recv().ok();
 
+            // ensure our streams are closed before waiting for work.
+            in_stream  = ReadStream::Null();
+            out_stream = WriteStream::Null();
+
             match proc_msg {
                 Some(ProcessingMsg::Start(new_input_settings, input_option, new_output_settings, output_option)) => {
                     input_settings  = new_input_settings;
                     output_settings = new_output_settings;
 
                     match open_read_stream(&input_settings, input_option) {
-                      Some(stream) => {
+                      Ok(stream) => {
                           in_stream  = stream;
 
                           match open_write_stream(&output_settings, output_option) {
@@ -623,8 +663,8 @@ fn stream_ccsds(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
                           }
                       },
 
-                      None => {
-                          sender.send(GuiMessage::Error("Could not open for reading".to_string())).unwrap();
+                      Err(err_string) => {
+                          sender.send(GuiMessage::Error(err_string)).unwrap();
                       },
                     }
 
@@ -652,7 +692,7 @@ fn stream_ccsds(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
 
         // NOTE this is an infinite loop. for files we will have to detect the
         // end and break the loop.
-        loop {
+        while processing {
             /* Check for Control Messages */
             let proc_msg = receiver.recv_timeout(time::Duration::from_millis(0)).ok();
 
@@ -677,7 +717,16 @@ fn stream_ccsds(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
             }
 
             /* Process a Packet */
-            stream_read_packet(&mut in_stream, &mut packet);
+            match stream_read_packet(&mut in_stream, &mut packet) {
+                Err(e) => {
+                    sender.send(GuiMessage::Error(e)).unwrap();
+                    processing = false;
+                    break;
+                },
+
+                _ => {},
+            }
+
 
             stream_send(&mut out_stream, &packet);
 
@@ -690,7 +739,6 @@ fn stream_ccsds(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
             }
             let pri_header = PrimaryHeader::<LittleEndian>::new(header);
 
-
             let packet_update = PacketUpdate { apid: pri_header.control.apid(),
                                                packet_length: packet.len() as u16,
                                              };
@@ -698,6 +746,8 @@ fn stream_ccsds(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
             sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
         }
 
-        sender.send(GuiMessage::Terminate()).unwrap();
+        sender.send(GuiMessage::Finished()).unwrap();
     }
+
+    sender.send(GuiMessage::Terminate()).unwrap();
 }

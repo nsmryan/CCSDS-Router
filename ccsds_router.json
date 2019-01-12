@@ -34,5 +34,6 @@
       "ip": "127.0.0.1"
     }
   },
-  "write_option": "Udp"
+  "write_option": "Udp",
+  "theme": "Dark"
 }

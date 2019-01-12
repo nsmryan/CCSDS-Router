@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, BufReader, Write};
+use std::io::{Read, BufReader};
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddrV4};
 
@@ -72,15 +72,15 @@ pub enum WriteStream {
 }
 
 
-pub fn open_read_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Option<ReadStream> {
-    let stream: ReadStream;
+pub fn open_read_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Result<ReadStream, String> {
+    let result;
 
     match input_option {
         StreamOption::File => {
             let mut file = File::open(input_settings.file.file_name.clone()).unwrap();
             let mut file = BufReader::new(file);
 
-            stream = ReadStream::File(file);
+            result = Ok(ReadStream::File(file));
         },
 
         StreamOption::TcpClient => {
@@ -89,9 +89,12 @@ pub fn open_read_stream(input_settings: &StreamSettings, input_option: StreamOpt
             let stream_conn = TcpStream::connect(&addr);
             match stream_conn {
                 Ok(mut sock) => {
-                    stream = ReadStream::Tcp(sock);
+                    result = Ok(ReadStream::Tcp(sock));
                 }, 
-                Err(_) => unreachable!(),
+
+                Err(e) => {
+                    result = Err(format!("TCP Client Open Error: {}", e));
+                },
             }
         },
 
@@ -101,19 +104,22 @@ pub fn open_read_stream(input_settings: &StreamSettings, input_option: StreamOpt
             let listener = TcpListener::bind(&addr).unwrap();
             match listener.accept() {
                 Ok((mut sock, _)) => {
-                    stream = ReadStream::Tcp(sock);
+                    result = Ok(ReadStream::Tcp(sock));
                 }, 
-                Err(_) => unreachable!(),
+
+                Err(e) => {
+                    result = Err(format!("TCP Server Open Error: {}", e));
+                },
             }
         },
 
         StreamOption::Udp => {
             let sock = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to udp address/port");
-            stream = ReadStream::Udp(sock);
+            result = Ok(ReadStream::Udp(sock));
         },
     }
 
-    Some(stream)
+    result
 }
 
 pub fn open_write_stream(output_settings: &StreamSettings, output_option: StreamOption) -> Option<WriteStream> {
@@ -159,49 +165,82 @@ pub fn open_write_stream(output_settings: &StreamSettings, output_option: Stream
     Some(stream)
 }
 
-pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Vec<u8>) {
+pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Vec<u8>) -> Result<usize, String> {
+    let mut result: Result<usize, String>;
+
     let mut header_bytes: [u8;6] = [0; 6];
 
     match input_stream {
         ReadStream::File(ref mut file) => {
-            file.read_exact(&mut header_bytes).unwrap();
+            // read enough bytes for a header
+            match file.read_exact(&mut header_bytes) {
+                Ok(()) => {
+                    let pri_header = PrimaryHeader::<LittleEndian>::new(header_bytes);
 
-            let pri_header = PrimaryHeader::<LittleEndian>::new(header_bytes);
+                    let data_size = pri_header.packet_length() - CCSDS_PRI_HEADER_SIZE_BYTES;
 
-            let data_size = pri_header.packet_length() - CCSDS_PRI_HEADER_SIZE_BYTES;
+                    // put header in packet buffer, swapping endianness.
+                    packet.clear();
+                    packet.push(header_bytes[1]);
+                    packet.push(header_bytes[0]);
+                    packet.push(header_bytes[3]);
+                    packet.push(header_bytes[2]);
+                    packet.push(header_bytes[5]);
+                    packet.push(header_bytes[4]);
 
-            // put header in packet buffer, swapping endianness.
-            packet.clear();
-            packet.push(header_bytes[1]);
-            packet.push(header_bytes[0]);
-            packet.push(header_bytes[3]);
-            packet.push(header_bytes[2]);
-            packet.push(header_bytes[5]);
-            packet.push(header_bytes[4]);
+                    result = Ok(pri_header.packet_length() as usize);
 
-            for _ in 0..data_size {
-                // NOTE awkward way to read. should get a slice of the vector?
-                let mut byte: [u8;1] = [0; 1];
-                file.read_exact(&mut byte).unwrap();
-                packet.push(byte[0]);
+                    // read the rest of the packet
+                    for _ in 0..data_size {
+                        // NOTE awkward way to read. should get a slice of the vector?
+                        let mut byte: [u8;1] = [0; 1];
+                        match file.read_exact(&mut byte) {
+                            Ok(()) => {
+                                packet.push(byte[0]);
+                            }
+
+                            Err(e) => {
+                                result = Err(format!("File Stream Read Error: {}", e));
+                                break;
+                            }
+                        }
+                    }
+                },
+
+                Err(e) => {
+                    result = Err(format!("File Stream Read Error: {}", e));
+                },
             }
+
         },
 
         ReadStream::Udp(udp_sock) => {
             // for UDP we just read a message, which must contain a CCSDS packet
             packet.clear();
-            udp_sock.recv(packet).unwrap();
+            match udp_sock.recv(packet) {
+                Ok(bytes_read) => {
+                    result = Ok(bytes_read);
+                },
+
+                Err(e) => {
+                    result = Err(format!("Udp Socket Read Error: {}", e));
+                },
+            }
         },
 
         ReadStream::Tcp(tcp_stream) => {
             // TODO implement for TCP
             packet.clear();
+            result = Err("TCP is no yet supported".to_string());;
         },
 
         ReadStream::Null() => {
             packet.clear();
+            result = Ok(0);
         },
     }
+
+    result
 }
 
 pub fn stream_send(output_stream: &mut WriteStream, packet: &Vec<u8>) {
