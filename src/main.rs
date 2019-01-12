@@ -428,7 +428,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 },
 
                 GuiMessage::Error(error_msg) => {
-                    // NOTE errors are ignored for now
+                    error!("{}", error_msg);
                 },
             }
         }
