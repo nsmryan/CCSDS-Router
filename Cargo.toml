@@ -17,4 +17,13 @@ num        = "0.2"
 num-traits = "0.2"
 num-derive = "0.2"
 
+serde        = "1.0"
+serde_json   = "1.0"
+serde_derive = "1.0"
+
+log = "0.4"
+simplelog = "^0.5.0"
+
+chrono = "0.4"
+
 ccsds_primary_header="0.4"
