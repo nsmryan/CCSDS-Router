@@ -106,7 +106,6 @@ impl PacketSize {
 }
 
 
-
 pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Result<ReadStream, String> {
     let result;
 

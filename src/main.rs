@@ -698,15 +698,9 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
     let mut processing = false;
     let mut terminating = false;
 
-    let mut input_settings:  StreamSettings;
-    let mut output_settings: StreamSettings;
+    let mut config: AppConfig = Default::default();
 
-    let mut in_stream  = ReadStream::Null();
-    let mut out_stream = WriteStream::Null();
-
-    let mut endianness = Endianness::Big;
-
-    let mut packet_size = PacketSize::Variable;
+    let mut endianness: Endianness = Endianness::Little;
 
     while !terminating {
         while !processing {
@@ -718,9 +712,6 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
 
             match proc_msg {
                 Some(ProcessingMsg::Start(config)) => {
-                    input_settings  = config.input_settings;
-                    output_settings = config.output_settings;
-
                     if config.little_endian_ccsds {
                         endianness = Endianness::Little;
                     }
@@ -730,11 +721,11 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
 
                     packet_size = config.packet_size;
 
-                    match open_input_stream(&input_settings, config.input_selection) {
+                    match open_input_stream(&config.input_settings, config.input_selection) {
                       Ok(stream) => {
                           in_stream  = stream;
 
-                          match open_output_stream(&output_settings, config.output_selection) {
+                          match open_output_stream(&config.output_settings, config.output_selection) {
                             Ok(stream) => {
                                 out_stream = stream;
                                 processing = true;
