@@ -60,7 +60,7 @@ pub enum ReadStream {
     File(BufReader<File>),
     Udp(UdpSocket),
     Tcp(TcpStream),
-    Null(),
+    Null,
 }
 
 #[derive(Debug)]
@@ -68,7 +68,7 @@ pub enum WriteStream {
     File(File),
     Udp((UdpSocket, SocketAddrV4)),
     Tcp(TcpStream),
-    Null(),
+    Null,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -330,7 +330,7 @@ pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Packet, en
             result = read_packet_from_reader(tcp_stream, packet, endianness, packet_size);
         },
 
-        ReadStream::Null() => {
+        ReadStream::Null => {
             result = Err("Reading a Null Stream! This should not happen!".to_string());
         },
     }
@@ -352,7 +352,7 @@ pub fn stream_send(output_stream: &mut WriteStream, packet: &Vec<u8>) {
             tcp_stream.write_all(&packet).unwrap();
         },
 
-        WriteStream::Null() => {
+        WriteStream::Null => {
 
         },
     }

@@ -1,5 +1,5 @@
 {
-  "read_config": {
+  "input_settings": {
     "file": {
       "file_name": "Logged_Data"
     },
@@ -16,8 +16,8 @@
       "ip": ""
     }
   },
-  "read_option": "File",
-  "write_config": {
+  "input_selection": "File",
+  "output_settings": {
     "file": {
       "file_name": ""
     },
@@ -34,8 +34,12 @@
       "ip": "127.0.0.1"
     }
   },
-  "write_option": "Udp",
+  "output_selection": "Udp",
   "theme": "Dark",
   "packet_size": "Variable",
-  "little_endian_ccsds": true
+  "little_endian_ccsds": true,
+  "prefix_bytes": 0,
+  "keep_prefix": false,
+  "postfix_bytes": 0,
+  "keep_postfix": false
 }

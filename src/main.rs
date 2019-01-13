@@ -107,17 +107,38 @@ impl PacketStats {
 #[derive(Debug, PartialEq, Eq)]
 enum GuiMessage {
     PacketUpdate(PacketUpdate),
-    Finished(),
-    Terminate(),
+    Finished,
+    Terminate,
     Error(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum ProcessingMsg {
     Start(AppConfig),
-    Stop(),
-    Cancel(),
-    Terminate(),
+    Pause,
+    Continue,
+    Cancel,
+    Terminate,
+}
+
+impl ProcessingMsg {
+    pub fn name(&self) -> &str {
+        match self {
+            ProcessingMsg::Start(_) => "Start",
+            ProcessingMsg::Pause => "Pause",
+            ProcessingMsg::Continue => "Continue",
+            ProcessingMsg::Cancel => "Cancel",
+            ProcessingMsg::Terminate => "Terminate",
+        }
+    }
+}
+
+/* Packet Processing Thread State */
+enum ProcessingState {
+    Paused,
+    Processing,
+    Idle,
+    Terminating,
 }
 
 
@@ -304,19 +325,25 @@ fn stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamS
 
         StreamOption::Udp => {
             ui.text(im_str!("Select Udp Socket Parameters:"));
+            ui.columns(2, im_str!("UdpSocketCols"), false);
             input_string(&ui, im_str!("IP Address"), &mut input_settings.udp.ip, imgui_str);
+            ui.next_column();
             input_port(&ui, &mut im_str!("Port"), &mut input_settings.udp.port);
         },
 
         StreamOption::TcpClient => {
             ui.text(im_str!("Select Tcp Client Parameters:"));
+            ui.columns(2, im_str!("UdpSocketCols"), false);
             input_string(&ui, im_str!("IP Address"), &mut input_settings.tcp_client.ip, imgui_str);
+            ui.next_column();
             input_port(&ui, im_str!("Port"), &mut input_settings.tcp_client.port);
         },
 
         StreamOption::TcpServer => {
             ui.text(im_str!("Select Tcp Server Socket Parameters:"));
+            ui.columns(2, im_str!("UdpSocketCols"), false);
             input_string(&ui, im_str!("IP Address"), &mut input_settings.tcp_server.ip, imgui_str);
+            ui.next_column();
             input_port(&ui, im_str!("Port"), &mut input_settings.tcp_server.port);
         },
     }
@@ -396,7 +423,8 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     let mut config: AppConfig = Default::default();
     let mut config_file_name = "ccsds_router.json".to_string();
 
-    let mut processing = 0;
+    let mut paused = false;
+    let mut processing = false;
 
     // Load the initial configuration
     match load_config(&config_file_name.clone()) {
@@ -444,7 +472,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
         while let Ok(msg_result) = receiver.recv_timeout(time::Duration::from_millis(0)) {
 
             match msg_result {
-                    GuiMessage::Terminate() => {
+                    GuiMessage::Terminate => {
                     break 'running;
                 },
 
@@ -454,8 +482,8 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                         .update(packet_update);
                 },
 
-                GuiMessage::Finished() => {
-                    processing = 0;
+                GuiMessage::Finished => {
+                    processing = false;
                 },
 
                 GuiMessage::Error(error_msg) => {
@@ -499,14 +527,14 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
 
                 /* Source Selection */
                 ui.text("Input Settings");
-                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 90.0))
+                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 70.0))
                     .show_borders(true)
                     .build(|| {
                         stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
                     });
 
                 ui.text("Output Settings");
-                ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 90.0))
+                ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 70.0))
                     .show_borders(true)
                     .build(|| {
                         stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut imgui_str);
@@ -548,7 +576,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
 
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
-                ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 250.0))
+                ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 270.0))
                     .show_borders(true)
                     .build(|| {
                         let count = packet_history.len() as i32;
@@ -607,9 +635,50 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                         }
                     });
 
-                if processing == 0 {
+                if ui.small_button(im_str!("Clear Stats")) {
+                    info!("Clearing Statistics");
+                    packet_history.clear();
+                }
+
+                ui.text("");
+
+                if paused {
+                    if ui.small_button(im_str!("Continue ")) {
+                        info!("Continuing Processing");
+                        sender.send(ProcessingMsg::Continue).unwrap();
+                        paused = false;
+                        processing = true;
+                    }
+
+                    ui.same_line(0.0);
+
+                    if ui.small_button(im_str!("Cancel")) {
+                        info!("Cancelled Processing");
+                        processing = false;
+                        sender.send(ProcessingMsg::Cancel).unwrap();
+                    }
+                }
+                else if processing {
+                    if ui.small_button(im_str!("  Pause  ")) {
+                        info!("Paused Processing");
+                        processing = false;
+                        paused = true;
+                        sender.send(ProcessingMsg::Pause).unwrap();
+                    }
+
+                    ui.same_line(0.0);
+
+                    if ui.small_button(im_str!("Cancel")) {
+                        info!("Cancelled Processing");
+                        processing = false;
+                        paused = false;
+                        sender.send(ProcessingMsg::Cancel).unwrap();
+                    }
+                }
+                else {
+                    // NOTE this needs to be redone to allow pausing and resetting
                     if ui.small_button(im_str!("Start")) {
-                        processing = 1;
+                        processing = true;
 
                         info!("Start Processing");
 
@@ -623,25 +692,10 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                         sender.send(ProcessingMsg::Start(config.clone())).unwrap();
                     }
                 }
-                else {
-                    if ui.small_button(im_str!("Stop ")) {
-                        info!("Stop Processing");
-                        processing = 0;
-                        sender.send(ProcessingMsg::Stop()).unwrap();
-                    }
-                }
 
-                ui.same_line(0.0);
-
-                if ui.small_button(im_str!("Clear Stats")) {
-                    info!("Clearing Statistics");
-                    packet_history.clear();
-                }
-
-                ui.same_line(0.0);
-
+                ui.text("");
                 if ui.small_button(im_str!("Exit")) {
-                    sender.send(ProcessingMsg::Terminate()).unwrap();
+                    sender.send(ProcessingMsg::Terminate).unwrap();
                 }
             });
 
@@ -659,7 +713,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
         ::std::thread::sleep(::std::time::Duration::new(0, 1_000_000_000u32 / 30));
     }
 
-    match sender.send(ProcessingMsg::Terminate()) {
+    match sender.send(ProcessingMsg::Terminate) {
         Ok(_) => {
             // NOTE awkward
             // Wait to receive terminate message from processing thread
@@ -690,6 +744,8 @@ fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImS
 
 /* Packet Processing Thread */
 fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
+    let mut state: ProcessingState = ProcessingState::Idle;
+  
     let mut packet: Packet
         = Packet { header: Default::default(),
                    bytes: Vec::with_capacity(4096),
@@ -698,124 +754,161 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
     let mut processing = false;
     let mut terminating = false;
 
-    let mut config: AppConfig = Default::default();
+    let config: AppConfig = Default::default();
+
+    let mut in_stream  = ReadStream::Null;
+    let mut out_stream = WriteStream::Null;
 
     let mut endianness: Endianness = Endianness::Little;
 
-    while !terminating {
-        while !processing {
-            let proc_msg = receiver.recv().ok();
 
-            // ensure our streams are closed before waiting for work.
-            in_stream  = ReadStream::Null();
-            out_stream = WriteStream::Null();
+    loop {
+        match state {
+            ProcessingState::Idle => {
+                in_stream  = ReadStream::Null;
+                out_stream = WriteStream::Null;
 
-            match proc_msg {
-                Some(ProcessingMsg::Start(config)) => {
-                    if config.little_endian_ccsds {
-                        endianness = Endianness::Little;
+                let msg_result = receiver.recv().ok();
+                match msg_result {
+                    // Start processing from a given set of configuration settings
+                    Some(ProcessingMsg::Start(config)) => {
+                        // get endianness to use
+                        if config.little_endian_ccsds {
+                            endianness = Endianness::Little;
+                        }
+                        else {
+                            endianness = Endianness::Big;
+                        }
+
+                        // open streams
+                        match open_input_stream(&config.input_settings, config.input_selection) {
+                          Ok(stream) => {
+                              in_stream  = stream;
+
+                              match open_output_stream(&config.output_settings, config.output_selection) {
+                                Ok(stream) => {
+                                    out_stream = stream;
+                                    state = ProcessingState::Processing;
+                                },
+
+                                Err(err_string) => {
+                                    sender.send(GuiMessage::Error(err_string)).unwrap();
+                                    sender.send(GuiMessage::Finished).unwrap();
+                                },
+                              }
+                          },
+
+                          Err(err_string) => {
+                              sender.send(GuiMessage::Error(err_string)).unwrap();
+                              sender.send(GuiMessage::Finished).unwrap();
+                          },
+                        }
+                    },
+
+                    Some(ProcessingMsg::Terminate) => {
+                        state = ProcessingState::Terminating;
+                    },
+
+                    Some(msg) => {
+                        sender.send(GuiMessage::Error(format!("Unexpected message while waiting to process {}", msg.name()))).unwrap();
                     }
-                    else {
-                        endianness = Endianness::Big;
+
+                    None => {
+                        // the result is not checked here because we are going to terminate whether
+                        // or not it is received.
+                        sender.send(GuiMessage::Error("Message queue error while idle".to_string())).unwrap();
+                        state = ProcessingState::Terminating;
+                    },
+                }
+            },
+
+            ProcessingState::Paused => {
+                let msg_result = receiver.recv().ok();
+                match msg_result {
+                    Some(ProcessingMsg::Continue) => {
+                        state = ProcessingState::Processing;
+                    },
+
+                    Some(ProcessingMsg::Cancel) => {
+                        state = ProcessingState::Idle;
+                    },
+
+                    Some(msg) => {
+                        sender.send(GuiMessage::Error(format!("Unexpected message while paused {}", msg.name()))).unwrap();
                     }
 
-                    packet_size = config.packet_size;
+                    None => {
+                        // the result is not checked here because we are going to terminate whether
+                        // or not it is received.
+                        sender.send(GuiMessage::Error("Message queue error while paused".to_string())).unwrap();
+                        state = ProcessingState::Terminating;
+                    },
+                }
+            },
 
-                    match open_input_stream(&config.input_settings, config.input_selection) {
-                      Ok(stream) => {
-                          in_stream  = stream;
+            ProcessingState::Processing => {
+                loop {
+                    /* Check for Control Messages */
+                    let proc_msg = receiver.recv_timeout(time::Duration::from_millis(0)).ok();
+                    match proc_msg {
+                        Some(ProcessingMsg::Pause) => {
+                            state = ProcessingState::Paused;
+                            break;
+                        },
 
-                          match open_output_stream(&config.output_settings, config.output_selection) {
-                            Ok(stream) => {
-                                out_stream = stream;
-                                processing = true;
-                            },
+                        Some(ProcessingMsg::Cancel) => {
+                            state = ProcessingState::Idle;
+                            break;
+                        },
 
-                            Err(err_string) => {
-                                sender.send(GuiMessage::Error(err_string)).unwrap();
-                                sender.send(GuiMessage::Finished()).unwrap();
-                            },
-                          }
-                      },
+                        Some(ProcessingMsg::Terminate) => {
+                            state = ProcessingState::Terminating;
+                            break;
+                        },
 
-                      Err(err_string) => {
-                          sender.send(GuiMessage::Error(err_string)).unwrap();
-                          sender.send(GuiMessage::Finished()).unwrap();
-                      },
+                        Some(msg) => {
+                            sender.send(GuiMessage::Error(format!("Unexpected message while processing {}", msg.name()))).unwrap();
+                        }
+
+                        None => {
+                            // NOTE should check for errors. ignore timeouts, but report others.
+                            // the result is not checked here because we are going to terminate whether
+                            // or not it is received.
+                            //sender.send(GuiMessage::Error("Message queue error while processing".to_string())).unwrap();
+                            //state = ProcessingState::Terminating;
+                        }
                     }
 
-                    if !processing {
-                        // setting these to another variant drops the previous value,
-                        // closing whatever stream was contained.
-                        in_stream  = ReadStream::Null();
-                        out_stream = WriteStream::Null();
+                    /* Process a Packet */
+                    match stream_read_packet(&mut in_stream, &mut packet, endianness, config.packet_size) {
+                        Err(e) => {
+                            sender.send(GuiMessage::Error(e)).unwrap();
+                            state = ProcessingState::Idle;
+                            break;
+                        },
+
+                        _ => {},
                     }
 
-                },
+                    stream_send(&mut out_stream, &packet.bytes);
 
-                Some(ProcessingMsg::Terminate()) => {
-                    terminating = true;
-                    break;
-                },
+                    /* Report packet to GUI */
+                    let packet_update = PacketUpdate { apid: packet.header.control.apid(),
+                                                       packet_length: packet.bytes.len() as u16,
+                                                     };
 
-                _ => {},
-            }
-        }
+                    sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
+                }
 
-        if terminating {
-            break;
-        }
+                sender.send(GuiMessage::Finished).unwrap();
+            },
 
-        // NOTE this is an infinite loop. for files we will have to detect the
-        // end and break the loop.
-        while processing {
-            /* Check for Control Messages */
-            let proc_msg = receiver.recv_timeout(time::Duration::from_millis(0)).ok();
+            ProcessingState::Terminating => {
+                break;
+            },
+        } // match state
+    } // loop
 
-            match proc_msg {
-                Some(ProcessingMsg::Stop()) => {
-                    processing = false;
-                    continue;
-                },
-
-                Some(ProcessingMsg::Cancel()) => {
-                    processing = false;
-                    // TODO should close streams
-                    continue;
-                },
-
-                Some(ProcessingMsg::Terminate()) => {
-                    terminating = true;
-                    break;
-                },
-
-                _ => {},
-            }
-
-            /* Process a Packet */
-            match stream_read_packet(&mut in_stream, &mut packet, endianness, packet_size) {
-                Err(e) => {
-                    sender.send(GuiMessage::Error(e)).unwrap();
-                    processing = false;
-                    break;
-                },
-
-                _ => {},
-            }
-
-
-            stream_send(&mut out_stream, &packet.bytes);
-
-            /* Report packet to GUI */
-            let packet_update = PacketUpdate { apid: packet.header.control.apid(),
-                                               packet_length: packet.bytes.len() as u16,
-                                             };
-
-            sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
-        }
-
-        sender.send(GuiMessage::Finished()).unwrap();
-    }
-
-    sender.send(GuiMessage::Terminate()).unwrap();
+    // the result is not inspected here- we are going to exit whether or not our message is received.
+    sender.send(GuiMessage::Terminate);
 }
