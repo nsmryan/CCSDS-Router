@@ -95,6 +95,10 @@ struct AppConfig {
     theme: GuiTheme,
     packet_size: PacketSize,
     little_endian_ccsds: bool,
+    prefix_bytes: i32,
+    keep_prefix: bool,
+    postfix_bytes: i32,
+    keep_postfix: bool,
 }
 
 /* Packet Data */
@@ -547,8 +551,13 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                             config.packet_size = PacketSize::Variable;
                         }
 
-                        if ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds) {
-                        }
+                        ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds);
+
+                        ui.input_int(im_str!("Packet Prefix Bytes"), &mut config.prefix_bytes);
+                        ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.keep_prefix);
+
+                        ui.checkbox(im_str!("Packet Postfix Bytes"), &mut config.postfix_bytes);
+                        ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.keep_postfix);
                     });
 
                 /* Packet Statistics */
