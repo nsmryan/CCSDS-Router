@@ -15,6 +15,8 @@ extern crate simplelog;
 
 extern crate chrono;
 
+extern crate floating_duration;
+
 extern crate sdl2;
 extern crate imgui;
 extern crate imgui_sdl2;
@@ -23,6 +25,7 @@ extern crate imgui_opengl_renderer;
 
 
 use std::time;
+use std::time::Duration;
 use std::thread;
 use std::io::{Write, Read};
 use std::default::Default;
@@ -39,107 +42,22 @@ use simplelog::*;
 
 use chrono::prelude::*;
 
+use floating_duration::TimeAsFloat;
+
 use imgui::*;
 
 mod stream;
 use stream::*;
 
+mod types;
+use types::*;
 
+
+/// Window width given to SDL
 const WINDOW_WIDTH:  f32 = 640.0;
+
+/// Window height given to SDL
 const WINDOW_HEIGHT: f32 = 740.0;
-
-
-type Apid = u16;
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-enum GuiTheme {
-    Dark,
-    Light,
-}
-
-impl Default for GuiTheme {
-    fn default() -> Self {
-        GuiTheme::Dark
-    }
-}
-
-/* Application Configuration */
-#[derive(Default, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
-struct AppConfig {
-    input_settings:  StreamSettings,
-    input_selection:  StreamOption,
-    output_settings: StreamSettings,
-    output_selection: StreamOption,
-    theme: GuiTheme,
-    packet_size: PacketSize,
-    little_endian_ccsds: bool,
-    prefix_bytes: i32,
-    keep_prefix: bool,
-    postfix_bytes: i32,
-    keep_postfix: bool,
-}
-
-/* Packet Data */
-type PacketHistory = HashMap<Apid, PacketStats>;
-
-#[derive(Default, PartialEq, Copy, Clone, Eq, Debug)]
-struct PacketStats {
-    apid: Apid,
-    packet_count: u16,
-    byte_count: u32,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-struct PacketUpdate {
-    apid: Apid,
-    packet_length: u16,
-}
-
-impl PacketStats {
-    fn update(&mut self, packet_update: PacketUpdate) {
-        self.apid = packet_update.apid;
-        self.packet_count += 1;
-        self.byte_count += packet_update.packet_length as u32;
-    }
-}
-
-/* Messages Generated During Packet Processing */
-#[derive(Debug, PartialEq, Eq)]
-enum GuiMessage {
-    PacketUpdate(PacketUpdate),
-    Finished,
-    Terminate,
-    Error(String),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum ProcessingMsg {
-    Start(AppConfig),
-    Pause,
-    Continue,
-    Cancel,
-    Terminate,
-}
-
-impl ProcessingMsg {
-    pub fn name(&self) -> &str {
-        match self {
-            ProcessingMsg::Start(_) => "Start",
-            ProcessingMsg::Pause => "Pause",
-            ProcessingMsg::Continue => "Continue",
-            ProcessingMsg::Cancel => "Cancel",
-            ProcessingMsg::Terminate => "Terminate",
-        }
-    }
-}
-
-/* Packet Processing Thread State */
-enum ProcessingState {
-    Paused,
-    Processing,
-    Idle,
-    Terminating,
-}
 
 
 fn main() {
@@ -421,10 +339,14 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     let mut packet_history: PacketHistory = HashMap::new();
 
     let mut config: AppConfig = Default::default();
+    // NOTE make this an input
     let mut config_file_name = "ccsds_router.json".to_string();
 
+    // NOTE this could be a state machine instead of bools
     let mut paused = false;
     let mut processing = false;
+
+    let mut timestamp_selection: i32 = 1;
 
     // Load the initial configuration
     match load_config(&config_file_name.clone()) {
@@ -501,40 +423,18 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
             .build(|| {
                 /* Configuration Settings */
                 ui.text("Configuration");
-                ui.child_frame(im_str!("Configuration"), (WINDOW_WIDTH - 15.0, 50.0))
-                    .show_borders(true)
-                    .build(|| {
-                        input_string(&ui, im_str!("Configuration File"), &mut config_file_name, &mut imgui_str);
-
-                        if ui.small_button(im_str!("Save")) {
-                            save_config(&config, &config_file_name.clone());
-                        }
-
-                        ui.same_line(0.0);
-
-                        if ui.small_button(im_str!("Load")) {
-                            match load_config(&config_file_name.clone()) {
-                              Some(config_read) => {
-                                  config = config_read;
-                              },
-
-                              None => {
-                                  error!("Could not load configuration file: {}", config_file_name);
-                              },
-                            }
-                        }
-                    });
+                configuration_ui(&ui, &mut config, &mut config_file_name, &mut imgui_str);
 
                 /* Source Selection */
                 ui.text("Input Settings");
-                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 70.0))
+                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 65.0))
                     .show_borders(true)
                     .build(|| {
                         stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
                     });
 
                 ui.text("Output Settings");
-                ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 70.0))
+                ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 65.0))
                     .show_borders(true)
                     .build(|| {
                         stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut imgui_str);
@@ -542,105 +442,17 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
 
                 /* CCSDS Packet Settings */
                 ui.text("CCSDS Settings");
-                ui.child_frame(im_str!("CcsdsSettings"), (WINDOW_WIDTH - 15.0, 90.0))
-                    .show_borders(true)
-                    .build(|| {
-                        let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
-                        ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
-                        if fixed_size_packets {
-                            ui.same_line(0.0);
-                            let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
-                            ui.input_int(im_str!("Packet Size (bytes)"), &mut packet_size).build();
-                            config.packet_size = PacketSize::Fixed(packet_size as u16);
-                        }
-                        else {
-                            config.packet_size = PacketSize::Variable;
-                        }
-
-                        ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds);
-
-                        ui.columns(2, im_str!("PrePostFixBytes"), false);
-                        ui.text("Prefix Bytes: ");
-                        ui.same_line(0.0);
-                        ui.input_int(im_str!(""), &mut config.prefix_bytes).build();
-                        ui.next_column();
-                        ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.keep_prefix);
-                        ui.next_column();
-
-                        ui.text("Postfix Bytes:");
-                        ui.same_line(0.0);
-                        ui.input_int(im_str!(""), &mut config.postfix_bytes).build();
-                        ui.next_column();
-                        ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.keep_postfix);
-                    });
+                packet_settings_ui(&ui, &mut config, &mut timestamp_selection);
 
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
-                ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 270.0))
-                    .show_borders(true)
-                    .build(|| {
-                        let count = packet_history.len() as i32;
-                        let mut string = String::from("Apids Seen: ");
-                        string.push_str(&count.to_string());
-                        ui.text(string.as_str());
+                packet_statistics_ui(&ui, &packet_history);
 
-                        ui.separator();
-
-                        ui.columns(6, im_str!("PacketStats"), true);
-
-                        for packet_stats in packet_history.values() {
-                            ui.text("Apid: ");
-
-                            ui.next_column();
-                            ui.text(format!("{:>5}", &packet_stats.apid.to_string()));
-
-                            ui.next_column();
-                            ui.text("Count: ");
-
-                            ui.next_column();
-                            ui.text(format!("{:>5}", packet_stats.packet_count.to_string()));
-
-                            ui.next_column();
-                            ui.text("Bytes: ");
-
-                            ui.next_column();
-                            ui.text(format!("{:>9}", &packet_stats.byte_count.to_string()));
-
-                            ui.next_column();
-                        }
-
-                        if packet_history.len() > 0 {
-                            ui.separator();
-
-                            ui.text("Total Apids:");
-
-                            ui.next_column();
-                            ui.text(packet_history.len().to_string());
-
-                            ui.next_column();
-                            ui.text("Total Packets");
-
-                            ui.next_column();
-                            let total_count = packet_history.values().map(|stats: &PacketStats| stats.packet_count as u32).sum::<u32>();
-                            ui.text(format!("{:>5}", total_count));
-
-                            ui.next_column();
-                            ui.text("Total Bytes:");
-
-                            ui.next_column();
-                            let total_byte_count = packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u32>();
-                            ui.text(format!("{:>9}", total_byte_count));
-
-                            ui.next_column();
-                        }
-                    });
-
+                /* Control Buttons */
                 if ui.small_button(im_str!("Clear Stats")) {
                     info!("Clearing Statistics");
                     packet_history.clear();
                 }
-
-                ui.text("");
 
                 if paused {
                     if ui.small_button(im_str!("Continue ")) {
@@ -655,6 +467,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                     if ui.small_button(im_str!("Cancel")) {
                         info!("Cancelled Processing");
                         processing = false;
+                        paused = false;
                         sender.send(ProcessingMsg::Cancel).unwrap();
                     }
                 }
@@ -693,7 +506,6 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                     }
                 }
 
-                ui.text("");
                 if ui.small_button(im_str!("Exit")) {
                     sender.send(ProcessingMsg::Terminate).unwrap();
                 }
@@ -731,6 +543,231 @@ fn input_port(ui: &Ui, label: &ImStr, port: &mut u16) {
     let mut tmp = *port as i32;
     ui.input_int(label, &mut tmp).build();
     *port = tmp as u16;
+}
+
+fn configuration_ui(ui: &Ui, config: &mut AppConfig, config_file_name: &mut String, imgui_str: &mut ImString) {
+    ui.child_frame(im_str!("Configuration"), (WINDOW_WIDTH - 15.0, 50.0))
+        .show_borders(true)
+        .build(|| {
+            input_string(ui, im_str!("Configuration File"), config_file_name, imgui_str);
+
+            if ui.small_button(im_str!("Save")) {
+                save_config(config, &config_file_name.clone());
+            }
+
+            ui.same_line(0.0);
+
+            if ui.small_button(im_str!("Load")) {
+                match load_config(&config_file_name.clone()) {
+                  Some(config_read) => {
+                      *config = config_read;
+                  },
+
+                  None => {
+                      error!("Could not load configuration file: {}", config_file_name);
+                  },
+                }
+            }
+        });
+}
+
+fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut i32) {
+    ui.child_frame(im_str!("CcsdsSettings"), (WINDOW_WIDTH - 15.0, 200.0))
+        .show_borders(true)
+        .build(|| {
+            ui.columns(2, im_str!("CcsdsSettings"), false);
+            // Fixed or variable size packets
+            let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
+            ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
+            if fixed_size_packets {
+                ui.same_line(0.0);
+                let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
+                ui.input_int(im_str!("Packet Size (bytes)"), &mut packet_size).build();
+                config.packet_size = PacketSize::Fixed(packet_size as u16);
+            }
+            else {
+                config.packet_size = PacketSize::Variable;
+            }
+
+            ui.next_column();
+
+            // Endianness settings
+            ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds);
+            ui.next_column();
+            ui.separator();
+
+            // Pre and post section settings
+            ui.text("Prefix Bytes: ");
+            ui.same_line(0.0);
+            ui.input_int(im_str!(""), &mut config.prefix_bytes).build();
+            ui.next_column();
+            ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.keep_prefix);
+            ui.next_column();
+
+            ui.text("Postfix Bytes:");
+            ui.same_line(0.0);
+            ui.input_int(im_str!(""), &mut config.postfix_bytes).build();
+            ui.next_column();
+            ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.keep_postfix);
+            ui.next_column();
+            ui.separator();
+            
+            // Timestamp settings
+            ui.text("Time Settings");
+            ui.columns(4, im_str!("SelectTimestampOption"), false);
+            ui.radio_button(im_str!("Forward Through"), timestamp_selection, 1);
+            ui.next_column();
+            ui.radio_button(im_str!("Replay"), timestamp_selection, 2);
+            ui.next_column();
+            ui.radio_button(im_str!("Delay"), timestamp_selection, 3);
+            ui.next_column();
+            ui.radio_button(im_str!("Throttle"), timestamp_selection, 4);
+            ui.next_column();
+
+            ui.columns(2, im_str!("SelectTimestampSettings"), false);
+            match timestamp_selection {
+                // ASAP
+                1 => {
+                    // no options required- just go as fast as possible
+                    config.timestamp_setting = TimestampSetting::Asap;
+                },
+
+                // Replay
+                2 => {
+                    timestamp_def_ui(&ui, &mut config.timestamp_def);
+                    config.timestamp_setting = TimestampSetting::Replay;
+                },
+
+                // Delay
+                3 => {
+                    timestamp_def_ui(&ui, &mut config.timestamp_def);
+                    match config.timestamp_setting {
+                        TimestampSetting::Delay(delay) => {
+                            ui.next_column();
+                            ui.text("Delay Time");
+                            ui.next_column();
+                            let mut delay_time = delay.as_fractional_secs() as f32;
+                            ui.input_float(im_str!(""), &mut delay_time).build();
+                            config.timestamp_setting =
+                                TimestampSetting::Delay(Duration::new(delay_time as u64,
+                                                                      (delay_time.fract() * 1000000000.0) as u32));
+                        }
+
+                        _ => {
+                            config.timestamp_setting = TimestampSetting::Delay(Duration::new(0, 0));
+                        }
+                    }
+                },
+
+                // Throttle
+                4 => {
+                    timestamp_def_ui(&ui, &mut config.timestamp_def);
+                    match config.timestamp_setting {
+                        TimestampSetting::Throttle(delay) => {
+                            ui.next_column();
+                            ui.text("Max Time");
+                            ui.next_column();
+                            let mut delay_time = delay.as_fractional_secs() as f32;
+                            ui.input_float(im_str!(""), &mut delay_time).build();
+                            config.timestamp_setting =
+                                TimestampSetting::Throttle(Duration::new(delay_time as u64,
+                                                                         (delay_time.fract() * 1000000000.0) as u32));
+                        }
+
+                        _ => {
+                            config.timestamp_setting = TimestampSetting::Throttle(Duration::new(0, 0));
+                        }
+                    }
+                },
+
+                _ => unreachable!(),
+
+            }
+        });
+}
+
+fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
+    ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 220.0))
+        .show_borders(true)
+        .show_scrollbar(true)
+        .always_show_vertical_scroll_bar(true)
+        .build(|| {
+            let count = packet_history.len() as i32;
+            let mut string = String::from("Apids Seen: ");
+            string.push_str(&count.to_string());
+            ui.text(string.as_str());
+
+            ui.separator();
+
+            ui.columns(6, im_str!("PacketStats"), true);
+
+            for packet_stats in packet_history.values() {
+                ui.text("Apid: ");
+
+                ui.next_column();
+                ui.text(format!("{:>5}", &packet_stats.apid.to_string()));
+
+                ui.next_column();
+                ui.text("Count: ");
+
+                ui.next_column();
+                ui.text(format!("{:>5}", packet_stats.packet_count.to_string()));
+
+                ui.next_column();
+                ui.text("Bytes: ");
+
+                ui.next_column();
+                ui.text(format!("{:>9}", &packet_stats.byte_count.to_string()));
+
+                ui.next_column();
+            }
+
+            if packet_history.len() > 0 {
+                ui.separator();
+
+                ui.text("Total Apids:");
+
+                ui.next_column();
+                ui.text(packet_history.len().to_string());
+
+                ui.next_column();
+                ui.text("Total Packets");
+
+                ui.next_column();
+                let total_count = packet_history.values().map(|stats: &PacketStats| stats.packet_count as u32).sum::<u32>();
+                ui.text(format!("{:>5}", total_count));
+
+                ui.next_column();
+                ui.text("Total Bytes:");
+
+                ui.next_column();
+                let total_byte_count = packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u32>();
+                ui.text(format!("{:>9}", total_byte_count));
+
+                ui.next_column();
+            }
+        });
+}
+
+fn timestamp_def_ui(ui: &Ui, timestamp_def: &mut TimestampDef) {
+    ui.text("Byte Offset After Primary Header");
+    ui.next_column();
+    ui.input_int(im_str!(""), &mut timestamp_def.offset).build();
+
+    ui.next_column();
+    ui.text("Number of Bytes in Seconds");
+    ui.next_column();
+    ui.input_int(im_str!(""), &mut timestamp_def.num_bytes_seconds).build();
+
+    ui.next_column();
+    ui.text("Number of Bytes in Subseconds");
+    ui.next_column();
+    ui.input_int(im_str!(""), &mut timestamp_def.num_bytes_subseconds).build();
+
+    ui.next_column();
+    ui.text("Subsecond Resolution");
+    ui.next_column();
+    ui.input_float(im_str!(""), &mut timestamp_def.subsecond_resolution).build();
 }
 
 fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImString) {

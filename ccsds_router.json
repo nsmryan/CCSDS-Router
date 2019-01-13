@@ -41,5 +41,12 @@
   "prefix_bytes": 0,
   "keep_prefix": false,
   "postfix_bytes": 0,
-  "keep_postfix": false
+  "keep_postfix": false,
+  "timestamp_setting": "Asap",
+  "timestamp_def": {
+    "offset": 0,
+    "num_bytes_seconds": 0,
+    "num_bytes_subseconds": 0,
+    "subsecond_resolution": 0.0
+  }
 }

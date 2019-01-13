@@ -26,4 +26,6 @@ simplelog = "^0.5.0"
 
 chrono = "0.4"
 
+floating-duration = "0.1"
+
 ccsds_primary_header="0.4"

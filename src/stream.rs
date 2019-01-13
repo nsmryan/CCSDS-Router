@@ -5,7 +5,7 @@ use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddrV4};
 
 use ccsds_primary_header::*;
 
-use byteorder::{ByteOrder, BigEndian, LittleEndian};
+use types::*;
 
 
 #[derive(FromPrimitive, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
@@ -81,28 +81,6 @@ pub enum Endianness {
 pub struct Packet {
     pub header: CcsdsPrimaryHeader,
     pub bytes:  Vec<u8>,
-}
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-pub enum PacketSize {
-    Variable,
-    Fixed(u16),
-}
-
-impl Default for PacketSize {
-    fn default() -> Self {
-        PacketSize::Variable
-    }
-}
-
-impl PacketSize {
-    pub fn num_bytes(&self) -> u16 {
-        match self {
-            PacketSize::Variable => 100,
-
-            PacketSize::Fixed(num) => *num,
-        }
-    }
 }
 
 
@@ -304,7 +282,7 @@ fn read_packet_from_reader<R>(reader: &mut R, packet: &mut Packet, endianness: E
 pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Packet, endianness: Endianness, packet_size: PacketSize) ->
     Result<usize, String> {
 
-    let mut result: Result<usize, String>;
+    let result: Result<usize, String>;
 
     match input_stream {
         ReadStream::File(ref mut file) => {
