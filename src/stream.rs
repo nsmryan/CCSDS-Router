@@ -8,7 +8,7 @@ use ccsds_primary_header::*;
 use byteorder::{ByteOrder, BigEndian, LittleEndian};
 
 
-#[derive(FromPrimitive, Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(FromPrimitive, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum StreamOption {
     File      = 1,
     TcpClient = 2,
@@ -23,30 +23,30 @@ impl Default for StreamOption {
 }
 
 /* Input Streams */
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSettings {
     pub file_name: String,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TcpClientSettings {
     pub port: u16,
     pub ip: String,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TcpServerSettings {
     pub port: u16,
     pub ip: String,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UdpSettings {
     pub port: u16,
     pub ip: String,
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamSettings {
     pub file: FileSettings,
     pub tcp_client: TcpClientSettings,
@@ -71,9 +71,15 @@ pub enum WriteStream {
     Null(),
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Endianness {
+    Big,
+    Little,
+}
+
 #[derive(Debug)]
-pub struct Packet<E: ByteOrder> {
-    pub header: PrimaryHeader<E>,
+pub struct Packet {
+    pub header: CcsdsPrimaryHeader,
     pub bytes:  Vec<u8>,
 }
 
@@ -83,10 +89,16 @@ pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOp
 
     match input_option {
         StreamOption::File => {
-            let mut file = File::open(input_settings.file.file_name.clone()).unwrap();
-            let mut file = BufReader::new(file);
+            match File::open(input_settings.file.file_name.clone()) {
+                Ok(file) => {
+                    let mut file = BufReader::new(file);
+                    result = Ok(ReadStream::File(file));
+                },
 
-            result = Ok(ReadStream::File(file));
+                Err(e) => {
+                    result = Err(format!("File open error for reading: {}", e));
+                },
+            }
         },
 
         StreamOption::TcpClient => {
@@ -128,13 +140,20 @@ pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOp
     result
 }
 
-pub fn open_output_stream(output_settings: &StreamSettings, output_option: StreamOption) -> Option<WriteStream> {
-    let stream: WriteStream;
+pub fn open_output_stream(output_settings: &StreamSettings, output_option: StreamOption) -> Result<WriteStream, String> {
+    let result: Result<WriteStream, String>;
 
     match output_option {
         StreamOption::File => {
-            let outfile = File::create(output_settings.file.file_name.clone()).unwrap();
-            stream = WriteStream::File(outfile);
+            match File::create(output_settings.file.file_name.clone()) {
+                Ok(outfile) => {
+                    result = Ok(WriteStream::File(outfile));
+                },
+
+                Err(e) => {
+                    result = Err(format!("File open error for writing: {}", e));
+                },
+            }
         },
 
         StreamOption::TcpClient => {
@@ -143,10 +162,12 @@ pub fn open_output_stream(output_settings: &StreamSettings, output_option: Strea
             let stream_conn = TcpStream::connect(&addr);
             match stream_conn {
                 Ok(mut sock) => {
-                    stream = WriteStream::Tcp(sock);
+                    result = Ok(WriteStream::Tcp(sock));
                 }, 
 
-                Err(_) => unreachable!(),
+                Err(e) => {
+                    result = Err(format!("TCP Client Open Error: {}", e));
+                },
             }
         },
 
@@ -154,27 +175,47 @@ pub fn open_output_stream(output_settings: &StreamSettings, output_option: Strea
             let addr = SocketAddrV4::new(output_settings.tcp_server.ip.parse().unwrap(),
             output_settings.tcp_server.port);
             let listener = TcpListener::bind(&addr).unwrap();
+
             match listener.accept() {
                 Ok((mut sock, _)) => {
-                    stream = WriteStream::Tcp(sock);
+                    result = Ok(WriteStream::Tcp(sock));
                 }, 
 
-                Err(_) => unreachable!(),
+                Err(e) => {
+                    result = Err(format!("TCP Server Open Error: {}", e));
+                },
             }
         },
 
         StreamOption::Udp => {
-            let addr = SocketAddrV4::new(output_settings.udp.ip.parse().unwrap(), output_settings.udp.port);
-            stream = WriteStream::Udp((UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to udp address/port"), addr));
+            match output_settings.udp.ip.parse() {
+                Ok(ip_addr) => {
+                    let addr = SocketAddrV4::new(ip_addr, output_settings.udp.port);
+
+                    match UdpSocket::bind("0.0.0.0:0") {
+                        Ok(udp_sock) => {
+                            result = Ok(WriteStream::Udp((udp_sock, addr)));
+                        },
+
+                        Err(e) => {
+                            result = Err(format!("Could not open UDP socket for writing: {}", e));
+                        },
+                    }
+                },
+
+                Err(e) => {
+                    result = Err(format!("Could not parse ip ({}): {}", output_settings.udp.ip, e));
+                },
+            }
         },
     }
 
-    Some(stream)
+    result
 }
 
 // read a packet from a stream (a file or a TCP stream)
-fn read_packet_from_reader<E, R>(reader: &mut R, packet: &mut Packet<E>) -> Result<usize, String>
-    where E: ByteOrder, R: Read {
+fn read_packet_from_reader<R>(reader: &mut R, packet: &mut Packet, endianness: Endianness) -> Result<usize, String>
+    where R: Read {
 
     let mut result: Result<usize, String>;
 
@@ -183,7 +224,16 @@ fn read_packet_from_reader<E, R>(reader: &mut R, packet: &mut Packet<E>) -> Resu
     // read enough bytes for a header
     match reader.read_exact(&mut header_bytes) {
         Ok(()) => {
-            packet.header = PrimaryHeader::<E>::new(header_bytes);
+            // if the header is laid out little endian, swap to big endian
+            if endianness == Endianness::Little {
+                for byte_index in 0..3 {
+                    let tmp = header_bytes[byte_index * 2];
+                    header_bytes[byte_index * 2] = header_bytes[byte_index * 2 + 1];
+                    header_bytes[byte_index * 2 + 1] = tmp;
+                }
+            }
+
+            packet.header = CcsdsPrimaryHeader::new(header_bytes);
 
             let packet_length = packet.header.packet_length();
             let data_size = packet_length - CCSDS_PRI_HEADER_SIZE_BYTES;
@@ -224,16 +274,14 @@ fn read_packet_from_reader<E, R>(reader: &mut R, packet: &mut Packet<E>) -> Resu
     result
 }
 
-pub fn stream_read_packet<E: ByteOrder>(input_stream: &mut ReadStream, packet: &mut Packet<E>) ->
+pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Packet, endianness: Endianness) ->
     Result<usize, String> {
 
     let mut result: Result<usize, String>;
 
-    let mut header_bytes: [u8;6] = [0; 6];
-
     match input_stream {
         ReadStream::File(ref mut file) => {
-            result = read_packet_from_reader(file, packet);
+            result = read_packet_from_reader(file, packet, endianness);
         },
 
         ReadStream::Udp(udp_sock) => {
@@ -251,7 +299,7 @@ pub fn stream_read_packet<E: ByteOrder>(input_stream: &mut ReadStream, packet: &
         },
 
         ReadStream::Tcp(tcp_stream) => {
-            result = read_packet_from_reader(tcp_stream, packet);
+            result = read_packet_from_reader(tcp_stream, packet, endianness);
         },
 
         ReadStream::Null() => {

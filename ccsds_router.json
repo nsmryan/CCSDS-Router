@@ -35,5 +35,7 @@
     }
   },
   "write_option": "Udp",
-  "theme": "Dark"
+  "theme": "Dark",
+  "packet_size": "Variable",
+  "little_endian_ccsds": true
 }

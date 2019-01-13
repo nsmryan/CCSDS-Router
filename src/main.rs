@@ -51,7 +51,7 @@ const WINDOW_HEIGHT: f32 = 740.0;
 
 type Apid = u16;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 enum GuiTheme {
     Dark,
     Light,
@@ -63,27 +63,51 @@ impl Default for GuiTheme {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+enum PacketSize {
+    Variable,
+    Fixed(usize),
+}
+
+impl Default for PacketSize {
+    fn default() -> Self {
+        PacketSize::Variable
+    }
+}
+
+impl PacketSize {
+    pub fn num_bytes(&self) -> usize {
+        match self {
+            PacketSize::Variable => 100,
+
+            PacketSize::Fixed(num) => *num,
+        }
+    }
+}
+
 /* Application Configuration */
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 struct AppConfig {
     read_config:  StreamSettings,
     read_option:  StreamOption,
     write_config: StreamSettings,
     write_option: StreamOption,
     theme: GuiTheme,
+    packet_size: PacketSize,
+    little_endian_ccsds: bool,
 }
 
 /* Packet Data */
 type PacketHistory = HashMap<Apid, PacketStats>;
 
-#[derive(Default, Debug)]
+#[derive(Default, PartialEq, Copy, Clone, Eq, Debug)]
 struct PacketStats {
     apid: Apid,
     packet_count: u16,
     byte_count: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 struct PacketUpdate {
     apid: Apid,
     packet_length: u16,
@@ -98,7 +122,7 @@ impl PacketStats {
 }
 
 /* Messages Generated During Packet Processing */
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum GuiMessage {
     PacketUpdate(PacketUpdate),
     Finished(),
@@ -106,9 +130,9 @@ enum GuiMessage {
     Error(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum ProcessingMsg {
-    Start(StreamSettings, StreamOption, StreamSettings, StreamOption),
+    Start(StreamSettings, StreamOption, StreamSettings, StreamOption, Endianness),
     Stop(),
     Cancel(),
     Terminate(),
@@ -485,7 +509,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                               },
 
                               None => {
-                                  // TODO Report error in error log
+                                  error!("Could not load configuration file: {}", config_file_name);
                               },
                             }
                         }
@@ -506,6 +530,27 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                         stream_ui(&ui, &mut config.write_option, &mut config.write_config, &mut imgui_str);
                     });
 
+                /* CCSDS Packet Settings */
+                ui.text("CCSDS Settings");
+                ui.child_frame(im_str!("CcsdsSettings"), (WINDOW_WIDTH - 15.0, 90.0))
+                    .show_borders(true)
+                    .build(|| {
+                        let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
+                        ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
+                        if fixed_size_packets {
+                            ui.same_line(0.0);
+                            let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
+                            ui.input_int(im_str!("Packet Size (bytes)"), &mut packet_size).build();
+                            config.packet_size = PacketSize::Fixed(packet_size as usize);
+                        }
+                        else {
+                            config.packet_size = PacketSize::Variable;
+                        }
+
+                        if ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds) {
+                        }
+                    });
+
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
                 ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 250.0))
@@ -521,28 +566,47 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                         ui.columns(6, im_str!("PacketStats"), true);
 
                         for packet_stats in packet_history.values() {
-                            let mut string = String::from("Apid: ");
-                            ui.text(string.as_str());
+                            ui.text("Apid: ");
 
                             ui.next_column();
-                            string = format!("{:>5}", &packet_stats.apid.to_string());
-                            ui.text(string.as_str());
+                            ui.text(format!("{:>5}", &packet_stats.apid.to_string()));
 
                             ui.next_column();
-                            let mut string = String::from("Count: ");
-                            ui.text(string.as_str());
+                            ui.text("Count: ");
 
                             ui.next_column();
-                            string = format!("{:>5}", packet_stats.packet_count.to_string());
-                            ui.text(string.as_str());
+                            ui.text(format!("{:>5}", packet_stats.packet_count.to_string()));
 
                             ui.next_column();
-                            let mut string = String::from("Bytes: ");
-                            ui.text(string.as_str());
+                            ui.text("Bytes: ");
 
                             ui.next_column();
-                            string = format!("{:>9}", &packet_stats.byte_count.to_string());
-                            ui.text(string.as_str());
+                            ui.text(format!("{:>9}", &packet_stats.byte_count.to_string()));
+
+                            ui.next_column();
+                        }
+
+                        if packet_history.len() > 0 {
+                            ui.separator();
+
+                            ui.text("Total Apids:");
+
+                            ui.next_column();
+                            ui.text(packet_history.len().to_string());
+
+                            ui.next_column();
+                            ui.text("Total Packets");
+
+                            ui.next_column();
+                            let total_count = packet_history.values().map(|stats: &PacketStats| stats.packet_count as u32).sum::<u32>();
+                            ui.text(format!("{:>5}", total_count));
+
+                            ui.next_column();
+                            ui.text("Total Bytes:");
+
+                            ui.next_column();
+                            let total_byte_count = packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u32>();
+                            ui.text(format!("{:>9}", total_byte_count));
 
                             ui.next_column();
                         }
@@ -551,11 +615,21 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 if processing == 0 {
                     if ui.small_button(im_str!("Start")) {
                         processing = 1;
+
                         info!("Start Processing");
+
+                        let endianness =
+                            if config.little_endian_ccsds {
+                                Endianness::Little
+                            } else {
+                                Endianness::Big
+                            };
+
                         sender.send(ProcessingMsg::Start(config.read_config.clone(),
                                                          config.read_option.clone(),
                                                          config.write_config.clone(),
-                                                         config.write_option.clone())).unwrap();
+                                                         config.write_option.clone(),
+                                                         endianness)).unwrap();
                     }
                 }
                 else {
@@ -625,7 +699,7 @@ fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImS
 
 /* Packet Processing Thread */
 fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
-    let mut packet: Packet<LittleEndian>
+    let mut packet: Packet
         = Packet { header: Default::default(),
                    bytes: Vec::with_capacity(4096),
     };
@@ -639,6 +713,8 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
     let mut in_stream  = ReadStream::Null();
     let mut out_stream = WriteStream::Null();
 
+    let mut endianness = Endianness::Big;
+
     while !terminating {
         while !processing {
             let proc_msg = receiver.recv().ok();
@@ -648,28 +724,32 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
             out_stream = WriteStream::Null();
 
             match proc_msg {
-                Some(ProcessingMsg::Start(new_input_settings, input_option, new_output_settings, output_option)) => {
+                Some(ProcessingMsg::Start(new_input_settings, input_option, new_output_settings, output_option, new_endianness)) => {
                     input_settings  = new_input_settings;
                     output_settings = new_output_settings;
+
+                    endianness = new_endianness;
 
                     match open_input_stream(&input_settings, input_option) {
                       Ok(stream) => {
                           in_stream  = stream;
 
                           match open_output_stream(&output_settings, output_option) {
-                            Some(stream) => {
+                            Ok(stream) => {
                                 out_stream = stream;
                                 processing = true;
                             },
 
-                            None => {
-                                sender.send(GuiMessage::Error("Could not open for writing".to_string())).unwrap();
+                            Err(err_string) => {
+                                sender.send(GuiMessage::Error(err_string)).unwrap();
+                                sender.send(GuiMessage::Finished()).unwrap();
                             },
                           }
                       },
 
                       Err(err_string) => {
                           sender.send(GuiMessage::Error(err_string)).unwrap();
+                          sender.send(GuiMessage::Finished()).unwrap();
                       },
                     }
 
@@ -722,7 +802,7 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
             }
 
             /* Process a Packet */
-            match stream_read_packet(&mut in_stream, &mut packet) {
+            match stream_read_packet(&mut in_stream, &mut packet, endianness) {
                 Err(e) => {
                     sender.send(GuiMessage::Error(e)).unwrap();
                     processing = false;
