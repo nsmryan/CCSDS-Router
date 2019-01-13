@@ -83,6 +83,29 @@ pub struct Packet {
     pub bytes:  Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
+pub enum PacketSize {
+    Variable,
+    Fixed(u16),
+}
+
+impl Default for PacketSize {
+    fn default() -> Self {
+        PacketSize::Variable
+    }
+}
+
+impl PacketSize {
+    pub fn num_bytes(&self) -> u16 {
+        match self {
+            PacketSize::Variable => 100,
+
+            PacketSize::Fixed(num) => *num,
+        }
+    }
+}
+
+
 
 pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Result<ReadStream, String> {
     let result;
@@ -214,8 +237,8 @@ pub fn open_output_stream(output_settings: &StreamSettings, output_option: Strea
 }
 
 // read a packet from a stream (a file or a TCP stream)
-fn read_packet_from_reader<R>(reader: &mut R, packet: &mut Packet, endianness: Endianness) -> Result<usize, String>
-    where R: Read {
+fn read_packet_from_reader<R>(reader: &mut R, packet: &mut Packet, endianness: Endianness, packet_size: PacketSize) ->
+    Result<usize, String> where R: Read {
 
     let mut result: Result<usize, String>;
 
@@ -235,7 +258,12 @@ fn read_packet_from_reader<R>(reader: &mut R, packet: &mut Packet, endianness: E
 
             packet.header = CcsdsPrimaryHeader::new(header_bytes);
 
-            let packet_length = packet.header.packet_length();
+            let packet_length;
+            match packet_size {
+                PacketSize::Variable => packet_length = packet.header.packet_length(),
+                PacketSize::Fixed(num_bytes) => packet_length = num_bytes,
+            }
+
             let data_size = packet_length - CCSDS_PRI_HEADER_SIZE_BYTES;
 
             // put header in packet buffer, swapping endianness.
@@ -274,18 +302,19 @@ fn read_packet_from_reader<R>(reader: &mut R, packet: &mut Packet, endianness: E
     result
 }
 
-pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Packet, endianness: Endianness) ->
+pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Packet, endianness: Endianness, packet_size: PacketSize) ->
     Result<usize, String> {
 
     let mut result: Result<usize, String>;
 
     match input_stream {
         ReadStream::File(ref mut file) => {
-            result = read_packet_from_reader(file, packet, endianness);
+            result = read_packet_from_reader(file, packet, endianness, packet_size);
         },
 
         ReadStream::Udp(udp_sock) => {
             // for UDP we just read a message, which must contain a CCSDS packet
+            // NOTE currently ignores packet size
             packet.bytes.clear();
             match udp_sock.recv(&mut packet.bytes) {
                 Ok(bytes_read) => {
@@ -299,7 +328,7 @@ pub fn stream_read_packet(input_stream: &mut ReadStream, packet: &mut Packet, en
         },
 
         ReadStream::Tcp(tcp_stream) => {
-            result = read_packet_from_reader(tcp_stream, packet, endianness);
+            result = read_packet_from_reader(tcp_stream, packet, endianness, packet_size);
         },
 
         ReadStream::Null() => {

@@ -63,35 +63,13 @@ impl Default for GuiTheme {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
-enum PacketSize {
-    Variable,
-    Fixed(usize),
-}
-
-impl Default for PacketSize {
-    fn default() -> Self {
-        PacketSize::Variable
-    }
-}
-
-impl PacketSize {
-    pub fn num_bytes(&self) -> usize {
-        match self {
-            PacketSize::Variable => 100,
-
-            PacketSize::Fixed(num) => *num,
-        }
-    }
-}
-
 /* Application Configuration */
-#[derive(Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Default, PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
 struct AppConfig {
-    read_config:  StreamSettings,
-    read_option:  StreamOption,
-    write_config: StreamSettings,
-    write_option: StreamOption,
+    input_settings:  StreamSettings,
+    input_selection:  StreamOption,
+    output_settings: StreamSettings,
+    output_selection: StreamOption,
     theme: GuiTheme,
     packet_size: PacketSize,
     little_endian_ccsds: bool,
@@ -136,7 +114,7 @@ enum GuiMessage {
 
 #[derive(Debug, PartialEq, Eq)]
 enum ProcessingMsg {
-    Start(StreamSettings, StreamOption, StreamSettings, StreamOption, Endianness),
+    Start(AppConfig),
     Stop(),
     Cancel(),
     Terminate(),
@@ -524,14 +502,14 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 90.0))
                     .show_borders(true)
                     .build(|| {
-                        stream_ui(&ui, &mut config.read_option, &mut config.read_config, &mut imgui_str);
+                        stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
                     });
 
                 ui.text("Output Settings");
                 ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 90.0))
                     .show_borders(true)
                     .build(|| {
-                        stream_ui(&ui, &mut config.write_option, &mut config.write_config, &mut imgui_str);
+                        stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut imgui_str);
                     });
 
                 /* CCSDS Packet Settings */
@@ -545,7 +523,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                             ui.same_line(0.0);
                             let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
                             ui.input_int(im_str!("Packet Size (bytes)"), &mut packet_size).build();
-                            config.packet_size = PacketSize::Fixed(packet_size as usize);
+                            config.packet_size = PacketSize::Fixed(packet_size as u16);
                         }
                         else {
                             config.packet_size = PacketSize::Variable;
@@ -553,10 +531,18 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
 
                         ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds);
 
-                        ui.input_int(im_str!("Packet Prefix Bytes"), &mut config.prefix_bytes);
+                        ui.columns(2, im_str!("PrePostFixBytes"), false);
+                        ui.text("Prefix Bytes: ");
+                        ui.same_line(0.0);
+                        ui.input_int(im_str!(""), &mut config.prefix_bytes).build();
+                        ui.next_column();
                         ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.keep_prefix);
+                        ui.next_column();
 
-                        ui.checkbox(im_str!("Packet Postfix Bytes"), &mut config.postfix_bytes);
+                        ui.text("Postfix Bytes:");
+                        ui.same_line(0.0);
+                        ui.input_int(im_str!(""), &mut config.postfix_bytes).build();
+                        ui.next_column();
                         ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.keep_postfix);
                     });
 
@@ -634,11 +620,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                                 Endianness::Big
                             };
 
-                        sender.send(ProcessingMsg::Start(config.read_config.clone(),
-                                                         config.read_option.clone(),
-                                                         config.write_config.clone(),
-                                                         config.write_option.clone(),
-                                                         endianness)).unwrap();
+                        sender.send(ProcessingMsg::Start(config.clone())).unwrap();
                     }
                 }
                 else {
@@ -724,6 +706,8 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
 
     let mut endianness = Endianness::Big;
 
+    let mut packet_size = PacketSize::Variable;
+
     while !terminating {
         while !processing {
             let proc_msg = receiver.recv().ok();
@@ -733,17 +717,24 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
             out_stream = WriteStream::Null();
 
             match proc_msg {
-                Some(ProcessingMsg::Start(new_input_settings, input_option, new_output_settings, output_option, new_endianness)) => {
-                    input_settings  = new_input_settings;
-                    output_settings = new_output_settings;
+                Some(ProcessingMsg::Start(config)) => {
+                    input_settings  = config.input_settings;
+                    output_settings = config.output_settings;
 
-                    endianness = new_endianness;
+                    if config.little_endian_ccsds {
+                        endianness = Endianness::Little;
+                    }
+                    else {
+                        endianness = Endianness::Big;
+                    }
 
-                    match open_input_stream(&input_settings, input_option) {
+                    packet_size = config.packet_size;
+
+                    match open_input_stream(&input_settings, config.input_selection) {
                       Ok(stream) => {
                           in_stream  = stream;
 
-                          match open_output_stream(&output_settings, output_option) {
+                          match open_output_stream(&output_settings, config.output_selection) {
                             Ok(stream) => {
                                 out_stream = stream;
                                 processing = true;
@@ -811,7 +802,7 @@ fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>)
             }
 
             /* Process a Packet */
-            match stream_read_packet(&mut in_stream, &mut packet, endianness) {
+            match stream_read_packet(&mut in_stream, &mut packet, endianness, packet_size) {
                 Err(e) => {
                     sender.send(GuiMessage::Error(e)).unwrap();
                     processing = false;
