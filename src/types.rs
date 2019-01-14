@@ -62,6 +62,9 @@ pub struct PacketStats {
 
     /// The number of bytes received of the APID
     pub byte_count: u32,
+
+    /// The last sequence count read for this APID
+    pub last_seq: u16,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -73,6 +76,9 @@ pub struct PacketUpdate {
 
     /// The packet length of the packet
     pub packet_length: u16,
+
+    /// The sequence count of the packet
+    pub seq_count: u16,
 }
 
 impl PacketStats {
@@ -80,6 +86,7 @@ impl PacketStats {
         self.apid = packet_update.apid;
         self.packet_count += 1;
         self.byte_count += packet_update.packet_length as u32;
+        self.last_seq = packet_update.seq_count;
     }
 }
 

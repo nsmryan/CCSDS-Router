@@ -1,24 +1,6 @@
 use std::time;
-use std::time::Duration;
-use std::thread;
-use std::io::{Write, Read};
 use std::default::Default;
-use std::collections::HashMap;
-use std::sync::mpsc::{channel, Sender, Receiver};
-use std::fs::File;
-use std::fs::create_dir;
-
-use ccsds_primary_header::*;
-
-use byteorder::{LittleEndian, BigEndian};
-
-use simplelog::*;
-
-use chrono::prelude::*;
-
-use floating_duration::TimeAsFloat;
-
-use imgui::*;
+use std::sync::mpsc::{Sender, Receiver};
 
 use types::*;
 use stream::*;
@@ -32,9 +14,6 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
         = Packet { header: Default::default(),
                    bytes: Vec::with_capacity(4096),
     };
-
-    let mut processing = false;
-    let mut terminating = false;
 
     let config: AppConfig = Default::default();
 
@@ -177,6 +156,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                     /* Report packet to GUI */
                     let packet_update = PacketUpdate { apid: packet.header.control.apid(),
                                                        packet_length: packet.bytes.len() as u16,
+                                                       seq_count: packet.header.sequence.sequence_count(),
                                                      };
 
                     sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
@@ -192,5 +172,5 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
     } // loop
 
     // the result is not inspected here- we are going to exit whether or not our message is received.
-    sender.send(GuiMessage::Terminate);
+    let _ = sender.send(GuiMessage::Terminate);
 }
