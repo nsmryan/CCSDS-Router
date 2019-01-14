@@ -273,88 +273,73 @@ fn read_packet_from_reader<R>(reader: &mut R,
                               frame_settings: &FrameSettings) -> Result<usize, String>
     where R: Read {
 
-    let result: Result<usize, String>;
-
     let mut header_bytes: [u8; CCSDS_PRI_HEADER_SIZE_BYTES as usize] = [0; CCSDS_PRI_HEADER_SIZE_BYTES as usize];
 
     let mut packet_length_bytes = 0;
 
+    let data_size;
+
     packet.bytes.clear();
 
-    match read_bytes(reader, &mut packet.bytes, frame_settings.prefix_bytes as usize) {
-        Ok(_) => {
-            // if we do not keep the prefix, clear the packet before continueing
-            if !frame_settings.keep_prefix {
-                packet.bytes.clear();
-            } else {
-                packet_length_bytes += frame_settings.prefix_bytes;
-            }
+    read_bytes(reader, &mut packet.bytes, frame_settings.prefix_bytes as usize)?;
 
-            // read enough bytes for a header
-            match reader.read_exact(&mut header_bytes) {
-                Ok(()) => {
-                    packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
-
-                    // put header in packet buffer
-                    packet.bytes.extend_from_slice(&header_bytes);
-
-                    // if the header is laid out little endian, swap to big endian
-                    // before using as a CCSDS header
-                    if endianness == Endianness::Little {
-                        for byte_index in 0..3 {
-                            let tmp = header_bytes[byte_index * 2];
-                            header_bytes[byte_index * 2] = header_bytes[byte_index * 2 + 1];
-                            header_bytes[byte_index * 2 + 1] = tmp;
-                        }
-                    }
-                    packet.header = CcsdsPrimaryHeader::new(header_bytes);
-
-                    // the packet length is either in the header, or it is given by the caller
-                    let packet_length = 
-                        match packet_size {
-                            PacketSize::Variable => packet.header.packet_length(),
-                            PacketSize::Fixed(num_bytes) => num_bytes,
-                        };
-
-                    let data_size = packet_length - CCSDS_PRI_HEADER_SIZE_BYTES;
-
-                    // read the data section of the packet
-                    match read_bytes(reader, &mut packet.bytes, data_size as usize) {
-                        Err(e) => result = Err(e),
-
-                        _ => {
-                            packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
-                            // read the data section of the packet
-                            match read_bytes(reader, &mut packet.bytes, frame_settings.postfix_bytes as usize) {
-                                Err(e) => result = Err(e),
-
-                                _ => {
-                                    // if we are not keeping the postfix bytes, truncate to the previous
-                                    // size.
-                                    if !frame_settings.keep_postfix {
-                                        packet.bytes.truncate(packet_length_bytes as usize);
-                                    } else {
-                                        // otherwise keep the postfix bytes
-                                        packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
-                                    }
-
-                                    result = Ok(packet_length_bytes as usize);
-                                },
-                            }
-                        },
-                    }
-                },
-
-                Err(e) => {
-                    result = Err(format!("Stream Read Error: {}", e));
-                },
-            }
-        },
-
-        Err(err) => result = Err(err),
+    // if we do not keep the prefix, clear the packet before continueing
+    if !frame_settings.keep_prefix {
+        packet.bytes.clear();
+    } else {
+        packet_length_bytes += frame_settings.prefix_bytes;
     }
 
-    result
+    // read enough bytes for a header
+    match reader.read_exact(&mut header_bytes) {
+        Err(e) => return Err(format!("Stream Read Error: {}", e)),
+
+         _ => {},
+    }
+
+    packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
+
+    // put header in packet buffer
+    packet.bytes.extend_from_slice(&header_bytes);
+
+    // if the header is laid out little endian, swap to big endian
+    // before using as a CCSDS header
+    if endianness == Endianness::Little {
+        for byte_index in 0..3 {
+            let tmp = header_bytes[byte_index * 2];
+            header_bytes[byte_index * 2] = header_bytes[byte_index * 2 + 1];
+            header_bytes[byte_index * 2 + 1] = tmp;
+        }
+    }
+    packet.header = CcsdsPrimaryHeader::new(header_bytes);
+
+    // the packet length is either in the header, or it is given by the caller
+    let packet_length = 
+        match packet_size {
+            PacketSize::Variable => packet.header.packet_length(),
+            PacketSize::Fixed(num_bytes) => num_bytes,
+        };
+
+    data_size = packet_length - CCSDS_PRI_HEADER_SIZE_BYTES;
+
+    // read the data section of the packet
+    read_bytes(reader, &mut packet.bytes, data_size as usize)?;
+
+    packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
+
+    // read the data section of the packet
+    read_bytes(reader, &mut packet.bytes, frame_settings.postfix_bytes as usize)?;
+
+    // if we are not keeping the postfix bytes, truncate to the previous
+    // size.
+    if !frame_settings.keep_postfix {
+        packet.bytes.truncate(packet_length_bytes as usize);
+    } else {
+        // otherwise keep the postfix bytes
+        packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
+    }
+
+    Ok(packet_length_bytes as usize)
 }
 
 pub fn stream_read_packet(input_stream: &mut ReadStream,
