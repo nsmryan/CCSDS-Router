@@ -407,8 +407,7 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
             ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.keep_postfix);
             ui.next_column();
 
-            let mut max_bytes = 0;
-            ui.input_int(im_str!("Max Bytes"), &mut max_bytes).build();
+            ui.input_int(im_str!("Max Bytes"), &mut config.max_length_bytes).build();
             ui.separator();
             
             // Timestamp settings
