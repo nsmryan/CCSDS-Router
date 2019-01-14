@@ -41,6 +41,8 @@ pub struct AppConfig {
     pub postfix_bytes: i32,
     pub keep_postfix: bool,
 
+    pub max_length_bytes: u16,
+
     pub timestamp_setting: TimestampSetting,
     pub timestamp_def: TimestampDef,
 }

@@ -23,27 +23,57 @@ impl Default for StreamOption {
 }
 
 /* Input Streams */
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSettings {
     pub file_name: String,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl Default for FileSettings {
+    fn default() -> Self {
+        FileSettings { file_name: "data.bin".to_string() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TcpClientSettings {
     pub port: u16,
     pub ip: String,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl Default for TcpClientSettings {
+    fn default() -> Self {
+        TcpClientSettings { port: 8000,
+                            ip: "127.0.0.1".to_string()
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TcpServerSettings {
     pub port: u16,
     pub ip: String,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl Default for TcpServerSettings {
+    fn default() -> Self {
+        TcpServerSettings { port: 8000,
+                            ip: "127.0.0.1".to_string()
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UdpSettings {
     pub port: u16,
     pub ip: String,
+}
+
+impl Default for UdpSettings {
+    fn default() -> Self {
+        UdpSettings { port: 8001,
+                      ip: "127.0.0.1".to_string()
+        }
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -368,10 +368,10 @@ fn configuration_ui(ui: &Ui, config: &mut AppConfig, config_file_name: &mut Stri
 }
 
 fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut i32) {
-    ui.child_frame(im_str!("CcsdsSettings"), (WINDOW_WIDTH - 15.0, 200.0))
+    ui.child_frame(im_str!("CcsdsSettingsFrame"), (WINDOW_WIDTH - 15.0, 180.0))
         .show_borders(true)
         .build(|| {
-            ui.columns(2, im_str!("CcsdsSettings"), false);
+            ui.columns(2, im_str!("CcsdsSettingsCol"), false);
             // Fixed or variable size packets
             let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
             ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
@@ -406,6 +406,9 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
             ui.next_column();
             ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.keep_postfix);
             ui.next_column();
+
+            let mut max_bytes = 0;
+            ui.input_int(im_str!("Max Bytes"), &mut max_bytes).build();
             ui.separator();
             
             // Timestamp settings
@@ -420,7 +423,7 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
             ui.radio_button(im_str!("Throttle"), timestamp_selection, 4);
             ui.next_column();
 
-            ui.columns(2, im_str!("SelectTimestampSettings"), false);
+            //ui.columns(2, im_str!("SelectTimestampSettings"), false);
             match timestamp_selection {
                 // ASAP
                 1 => {
@@ -548,24 +551,24 @@ fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
 }
 
 fn timestamp_def_ui(ui: &Ui, timestamp_def: &mut TimestampDef) {
-    ui.text("Byte Offset After Primary Header");
+    ui.text("Bytes For Seconds");
     ui.next_column();
-    ui.input_int(im_str!(""), &mut timestamp_def.offset).build();
+    ui.input_int(im_str!("a"), &mut timestamp_def.num_bytes_seconds).build();
 
     ui.next_column();
-    ui.text("Number of Bytes in Seconds");
+    ui.text("Bytes For Subseconds");
     ui.next_column();
-    ui.input_int(im_str!(""), &mut timestamp_def.num_bytes_seconds).build();
+    ui.input_int(im_str!("b"), &mut timestamp_def.num_bytes_subseconds).build();
 
     ui.next_column();
-    ui.text("Number of Bytes in Subseconds");
+    ui.text("Bytes Past Header");
     ui.next_column();
-    ui.input_int(im_str!(""), &mut timestamp_def.num_bytes_subseconds).build();
+    ui.input_int(im_str!("c"), &mut timestamp_def.offset).build();
 
     ui.next_column();
     ui.text("Subsecond Resolution");
     ui.next_column();
-    ui.input_float(im_str!(""), &mut timestamp_def.subsecond_resolution).build();
+    ui.input_float(im_str!("d"), &mut timestamp_def.subsecond_resolution).build();
 }
 
 fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImString) {
