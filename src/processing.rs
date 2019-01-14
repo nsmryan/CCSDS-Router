@@ -163,11 +163,11 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         },
 
                         TimestampSetting::Throttle(duration) => {
-                            match (SystemTime::now() - last_send_time).checked_sub(duration) {
-                                Some(remaining_time) => timeout = remaining_time,
+                            //match (SystemTime::now() - last_send_time).checked_sub(duration) {
+                            //    Some(remaining_time) => timeout = remaining_time,
 
-                                None => timeout = Duration::from_millis(0),
-                            }
+                            //    None => timeout = Duration::from_millis(0),
+                            //}
                         },
                     }
 
