@@ -15,7 +15,9 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                    bytes: Vec::with_capacity(4096),
     };
 
-    let config: AppConfig = Default::default();
+    let mut max_length_bytes: usize = 0;
+    let mut packet_size: PacketSize = Default::default();
+    let mut frame_settings: FrameSettings = Default::default();
 
     let mut in_stream  = ReadStream::Null;
     let mut out_stream = WriteStream::Null;
@@ -33,6 +35,10 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                 match msg_result {
                     // Start processing from a given set of configuration settings
                     Some(ProcessingMsg::Start(config)) => {
+                        max_length_bytes = config.max_length_bytes as usize;
+                        packet_size = config.packet_size;
+                        frame_settings = config.frame_settings;
+
                         // get endianness to use
                         if config.little_endian_ccsds {
                             endianness = Endianness::Little;
@@ -94,6 +100,10 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         state = ProcessingState::Idle;
                     },
 
+                    Some(ProcessingMsg::Terminate) => {
+                        state = ProcessingState::Terminating;
+                    },
+
                     Some(msg) => {
                         sender.send(GuiMessage::Error(format!("Unexpected message while paused {}", msg.name()))).unwrap();
                     }
@@ -141,7 +151,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                     }
 
                     /* Process a Packet */
-                    match stream_read_packet(&mut in_stream, &mut packet, endianness, config.packet_size) {
+                    match stream_read_packet(&mut in_stream, &mut packet, endianness, packet_size, &frame_settings) {
                         Err(e) => {
                             sender.send(GuiMessage::Error(e)).unwrap();
                             state = ProcessingState::Idle;
@@ -151,15 +161,21 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         _ => {},
                     }
 
-                    stream_send(&mut out_stream, &packet.bytes);
+                    if packet.header.packet_length() as usize <= max_length_bytes {
+                        stream_send(&mut out_stream, &packet.bytes);
 
-                    /* Report packet to GUI */
-                    let packet_update = PacketUpdate { apid: packet.header.control.apid(),
-                                                       packet_length: packet.bytes.len() as u16,
-                                                       seq_count: packet.header.sequence.sequence_count(),
-                                                     };
+                        /* Report packet to GUI */
+                        let packet_update = PacketUpdate { apid: packet.header.control.apid(),
+                                                           packet_length: packet.bytes.len() as u16,
+                                                           seq_count: packet.header.sequence.sequence_count(),
+                                                         };
 
-                    sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
+                        sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
+                    } else {
+                        sender.send(GuiMessage::Error(format!("Unexpected message length {} for APID {}. Packet Dropped",
+                                                              packet.bytes.len(),
+                                                              packet.header.control.apid()))).unwrap();
+                    }
                 }
 
                 sender.send(GuiMessage::Finished).unwrap();

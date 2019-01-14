@@ -4,30 +4,30 @@
       "file_name": "Logged_Data"
     },
     "tcp_client": {
-      "port": 0,
-      "ip": ""
+      "port": 8000,
+      "ip": "127.0.0.1"
     },
     "tcp_server": {
-      "port": 0,
-      "ip": ""
+      "port": 8000,
+      "ip": "127.0.0.1"
     },
     "udp": {
-      "port": 0,
-      "ip": ""
+      "port": 8001,
+      "ip": "127.0.0.1"
     }
   },
   "input_selection": "File",
   "output_settings": {
     "file": {
-      "file_name": ""
+      "file_name": "data.bin"
     },
     "tcp_client": {
-      "port": 0,
-      "ip": ""
+      "port": 8000,
+      "ip": "127.0.0.1"
     },
     "tcp_server": {
-      "port": 0,
-      "ip": ""
+      "port": 8000,
+      "ip": "127.0.0.1"
     },
     "udp": {
       "port": 8001,
@@ -42,6 +42,7 @@
   "keep_prefix": false,
   "postfix_bytes": 0,
   "keep_postfix": false,
+  "max_length_bytes": 65542,
   "timestamp_setting": "Asap",
   "timestamp_def": {
     "offset": 0,

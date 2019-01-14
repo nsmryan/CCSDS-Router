@@ -56,7 +56,7 @@ use style::*;
 
 
 /// Window width given to SDL
-const WINDOW_WIDTH:  f32 = 640.0;
+const WINDOW_WIDTH:  f32 = 840.0;
 
 /// Window height given to SDL
 const WINDOW_HEIGHT: f32 = 740.0;
@@ -228,22 +228,22 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 configuration_ui(&ui, &mut config, &mut config_file_name, &mut imgui_str);
 
                 /* Source Selection */
-                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 165.0))
+                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 80.0))
                     .show_borders(false)
                     .build(|| {
-                        //ui.columns(2, im_str!("SelectionTypeColumns"), false);
+                        ui.columns(2, im_str!("InputOutputSettings"), false);
 
                         ui.text("Input Settings");
-                        ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 65.0))
+                        ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0) / 2.0, 65.0))
                             .show_borders(true)
                             .build(|| {
                                 stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
                             });
 
-                        //ui.next_column();
+                        ui.next_column();
 
                         ui.text("Output Settings");
-                        ui.child_frame(im_str!("SelectOutputType"), (WINDOW_WIDTH - 15.0, 65.0))
+                        ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0) / 2.0, 65.0))
                             .show_borders(true)
                             .build(|| {
                                 stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut imgui_str);
@@ -402,16 +402,16 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
             // Pre and post section settings
             ui.text("Prefix Bytes: ");
             ui.same_line(0.0);
-            ui.input_int(im_str!(""), &mut config.prefix_bytes).build();
+            ui.input_int(im_str!(""), &mut config.frame_settings.prefix_bytes).build();
             ui.next_column();
-            ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.keep_prefix);
+            ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.frame_settings.keep_prefix);
             ui.next_column();
 
             ui.text("Postfix Bytes:");
             ui.same_line(0.0);
-            ui.input_int(im_str!(""), &mut config.postfix_bytes).build();
+            ui.input_int(im_str!(""), &mut config.frame_settings.postfix_bytes).build();
             ui.next_column();
-            ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.keep_postfix);
+            ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.frame_settings.keep_postfix);
             ui.next_column();
 
             ui.input_int(im_str!("Max Bytes"), &mut config.max_length_bytes).build();

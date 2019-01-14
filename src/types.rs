@@ -36,15 +36,20 @@ pub struct AppConfig {
     pub packet_size: PacketSize,
     pub little_endian_ccsds: bool,
 
-    pub prefix_bytes: i32,
-    pub keep_prefix: bool,
-    pub postfix_bytes: i32,
-    pub keep_postfix: bool,
+    pub frame_settings: FrameSettings,
 
     pub max_length_bytes: i32,
 
     pub timestamp_setting: TimestampSetting,
     pub timestamp_def: TimestampDef,
+}
+
+#[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct FrameSettings {
+    pub prefix_bytes: i32,
+    pub keep_prefix: bool,
+    pub postfix_bytes: i32,
+    pub keep_postfix: bool,
 }
 
 /* Packet Data */
