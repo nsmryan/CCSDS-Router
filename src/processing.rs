@@ -1,6 +1,7 @@
 use std::time;
 use std::default::Default;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::{Sender, Receiver, RecvTimeoutError};
+use std::time::{SystemTime, Duration};
 
 use types::*;
 use stream::*;
@@ -24,6 +25,11 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
     let mut endianness: Endianness = Endianness::Little;
 
+    let timestamp_setting: TimestampSetting = Default::default();
+    let timestamp_def: TimestampDef = Default::default();
+
+    let timeout = Duration::from_millis(0);
+    let last_send_time: SystemTime = SystemTime::now();
 
     loop {
         match state {
@@ -38,6 +44,8 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         max_length_bytes = config.max_length_bytes as usize;
                         packet_size = config.packet_size;
                         frame_settings = config.frame_settings;
+                        timestamp_setting = config.timestamp_setting;
+                        timestamp_def = config.timestamp_def;
 
                         // get endianness to use
                         if config.little_endian_ccsds {
@@ -119,38 +127,10 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
             ProcessingState::Processing => {
                 loop {
-                    /* Check for Control Messages */
-                    let proc_msg = receiver.recv_timeout(time::Duration::from_millis(0)).ok();
-                    match proc_msg {
-                        Some(ProcessingMsg::Pause) => {
-                            state = ProcessingState::Paused;
-                            break;
-                        },
-
-                        Some(ProcessingMsg::Cancel) => {
-                            state = ProcessingState::Idle;
-                            break;
-                        },
-
-                        Some(ProcessingMsg::Terminate) => {
-                            state = ProcessingState::Terminating;
-                            break;
-                        },
-
-                        Some(msg) => {
-                            sender.send(GuiMessage::Error(format!("Unexpected message while processing {}", msg.name()))).unwrap();
-                        }
-
-                        None => {
-                            // NOTE should check for errors. ignore timeouts, but report others.
-                            // the result is not checked here because we are going to terminate whether
-                            // or not it is received.
-                            //sender.send(GuiMessage::Error("Message queue error while processing".to_string())).unwrap();
-                            //state = ProcessingState::Terminating;
-                        }
-                    }
-
                     /* Process a Packet */
+                    // NOTE need to handle timing out for network reads and still responding to
+                    // control messages.
+                    // NOTE need to handle reading from files that may grow, and ones that will not
                     match stream_read_packet(&mut in_stream, &mut packet, endianness, packet_size, &frame_settings) {
                         Err(e) => {
                             sender.send(GuiMessage::Error(e)).unwrap();
@@ -161,6 +141,74 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         _ => {},
                     }
 
+                    // determine delay to use from time settings
+                    match timestamp_setting {
+                        TimestampSetting::Asap => {
+                            timeout = Duration::from_millis(0);
+                        }
+
+                        TimestampSetting::Replay => {
+                            //let timestamp = decode_timestamp(&packet.bytes, &timestamp_def);
+
+                            //match (SystemTime::now() - timestamp).checked_sub(duration) =>
+                            //{
+                            //    Some(remaining_time) => timeout = remaining_time,
+
+                            //    None => timeout = Duration::from_millis(0);
+                            //}
+                        },
+
+                        TimestampSetting::Delay(duration) => {
+                            timeout = duration;
+                        },
+
+                        TimestampSetting::Throttle(duration) => {
+                            match (SystemTime::now() - last_send_time).checked_sub(duration) {
+                                Some(remaining_time) => timeout = remaining_time,
+
+                                None => timeout = Duration::from_millis(0),
+                            }
+                        },
+                    }
+
+                    /* Check for Control Messages */
+                    // NOTE this needs to loop to ensure that we wait the full time, and not
+                    // just continue if a message is received.
+                    match receiver.recv_timeout(timeout) {
+                        Err(RecvTimeoutError::Timeout) => {
+                            // timing out means that we are ready to process the next packet,
+                            // so this is not an error condition
+                        },
+
+                        Ok(ProcessingMsg::Pause) => {
+                            state = ProcessingState::Paused;
+                            break;
+                        },
+
+                        Ok(ProcessingMsg::Cancel) => {
+                            state = ProcessingState::Idle;
+                            break;
+                        },
+
+                        Ok(ProcessingMsg::Terminate) => {
+                            state = ProcessingState::Terminating;
+                            break;
+                        },
+
+                        Ok(msg) => {
+                            sender.send(GuiMessage::Error(format!("Unexpected message while processing {}", msg.name()))).unwrap();
+                        },
+
+                        Err(RecvTimeoutError::Disconnected) => {
+                            // the result is not checked here because we are going to terminate whether
+                            // or not it is received.
+                            let _ = sender.send(GuiMessage::Error("Message queue error while processing".to_string()));
+                            state = ProcessingState::Terminating;
+                        },
+                    }
+
+                    // check that the packet is within the allowed length. note that this is based
+                    // on the CCSDS packet length, ignoring pre or postfix bytes in the frame.
                     if packet.header.packet_length() as usize <= max_length_bytes {
                         stream_send(&mut out_stream, &packet.bytes);
 
@@ -169,6 +217,8 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                                                            packet_length: packet.bytes.len() as u16,
                                                            seq_count: packet.header.sequence.sequence_count(),
                                                          };
+
+                        last_send_time = SystemTime::now();
 
                         sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
                     } else {
