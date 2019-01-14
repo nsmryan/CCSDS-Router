@@ -131,7 +131,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     /* Application State */
     let mut packet_history: PacketHistory = HashMap::new();
 
-    let mut config: AppConfig = Default::default();
+    let mut config: AppConfig;
 
     // NOTE make this an input
     let mut config_file_name = "ccsds_router.json".to_string();
@@ -140,6 +140,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     let mut paused = false;
     let mut processing = false;
 
+    // index of selection for how to treat timestamps
     let mut timestamp_selection: i32 = 1;
 
     // Load the initial configuration
@@ -154,6 +155,10 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
           // use defaults if no config was read
           info!("Default Configuration Used");
           config = Default::default();
+
+          // NOTE the default max length is 0xFFFF in the length field, 
+          // plus the size of a CCSDS Primary header, plus 1.
+          config.max_length_bytes = 65535 + 6 + 1;
       },
     }
 
@@ -168,7 +173,9 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     }
 
 
+    // Main GUI event loop
     'running: loop {
+        /* SDL Events */
         use sdl2::event::Event;
         use sdl2::keyboard::Keycode;
 
@@ -208,7 +215,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
             }
         }
 
-        /* UI */
+        /* IMGUI UI */
         let ui = imgui_sdl2.frame(&window, &mut imgui, &event_pump);
 
         ui.window(im_str!(""))
