@@ -64,6 +64,9 @@ extern crate floating_duration;
 
 extern crate structopt;
 
+extern crate hexdump;
+extern crate itertools;
+
 extern crate sdl2;
 extern crate imgui;
 extern crate imgui_sdl2;
@@ -89,6 +92,9 @@ use chrono::prelude::*;
 use floating_duration::TimeAsFloat;
 
 use structopt::*;
+
+use hexdump::*;
+use itertools::*;
 
 use imgui::*;
 
@@ -569,6 +575,15 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
       });
 }
 
+fn packet_summary_ui(ui: &Ui, packet_stats: &PacketStats) {
+    if ui.is_item_hovered() {
+        ui.tooltip(|| {
+            ui.text(format!("APID {} Hex Dump:", packet_stats.apid));
+            hexdump_iter(&packet_stats.bytes).for_each(|s| ui.text(format!("{}", s)));
+        });
+    }
+}
+
 fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
     ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 320.0))
         .show_borders(true)
@@ -586,28 +601,38 @@ fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
 
             for packet_stats in packet_history.values() {
                 ui.text("Apid: ");
+                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("{:>5}", &packet_stats.apid.to_string()));
+                packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
                 ui.text("Count: ");
+                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("{:>5}", packet_stats.packet_count.to_string()));
+                packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
                 ui.text("Total Bytes: ");
+                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("{:>9}", &packet_stats.byte_count.to_string()));
+                packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
                 ui.text("Byte Len:");
+                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("{:>5}", &packet_stats.last_len.to_string()));
+                packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
                 ui.text("Last Seq:");
+                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("{:>5}", &packet_stats.last_seq.to_string()));
+                packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
             }

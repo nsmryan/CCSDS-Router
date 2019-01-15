@@ -79,7 +79,7 @@ pub struct FrameSettings {
 /// a summary of what packets have been received.
 pub type PacketHistory = HashMap<Apid, PacketStats>;
 
-#[derive(Default, PartialEq, Copy, Clone, Eq, Debug)]
+#[derive(Default, PartialEq, Clone, Eq, Debug)]
 /// A PacketStats is a set of statistics about a particular
 /// APID.
 pub struct PacketStats {
@@ -97,9 +97,11 @@ pub struct PacketStats {
 
     /// The last packet length read for this APID
     pub last_len: u16,
+
+    pub bytes: Vec<u8>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 /// A PacketUpdate is provided by the processing thread to
 /// the GUI to indicate that a packet was processed.
 pub struct PacketUpdate {
@@ -111,6 +113,8 @@ pub struct PacketUpdate {
 
     /// The sequence count of the packet
     pub seq_count: u16,
+
+    pub bytes: Vec<u8>,
 }
 
 impl PacketStats {
@@ -120,6 +124,8 @@ impl PacketStats {
         self.byte_count += packet_update.packet_length as u32;
         self.last_seq = packet_update.seq_count;
         self.last_len = packet_update.packet_length;
+        self.bytes.clear();
+        self.bytes.extend(packet_update.bytes);
     }
 }
 

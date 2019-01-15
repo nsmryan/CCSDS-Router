@@ -318,10 +318,13 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         stream_send(&mut out_stream, &packet.bytes);
 
                         /* Report packet to GUI */
-                        let packet_update = PacketUpdate { apid: packet.header.control.apid(),
-                                                           packet_length: packet.bytes.len() as u16,
-                                                           seq_count: packet.header.sequence.sequence_count(),
-                                                         };
+                        let mut packet_update = PacketUpdate { apid: packet.header.control.apid(),
+                                                               packet_length: packet.bytes.len() as u16,
+                                                               seq_count: packet.header.sequence.sequence_count(),
+                                                               bytes: Vec::new(),
+                                                             };
+
+                        packet_update.bytes.extend(packet.bytes.clone());
 
                         last_send_time = SystemTime::now();
 
