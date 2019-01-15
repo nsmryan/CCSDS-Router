@@ -1,3 +1,48 @@
+//! CCSDS Router is a GUI program for forwarding CCSDS packets from
+//! an input source (file, UDP socket, TCP socket) to an output (file,
+//! UDP socket, TCP socket).
+//!
+//! The intended use cases are:
+//! * Replaying stored packets, such as for testing.
+//! * Forwarding packets from one port to another as a translation between
+//!     system interfaces.
+//! * Delay packets to simulate communication delay for testing.
+//!
+//!
+//! # Configuration
+//! The GUI options are all in a configuration file in JSON format.
+//!
+//! If the configuration file is not provided, or it cannot be read, the default
+//! configuration will be used and a warning will be logged.
+//!
+//! The configuration file used is reported in the application log as a record of
+//! which configuration was used.
+//!
+//!
+//! # Logging
+//! This application creates logs in a directory called 'logs'. Each log is timestamped
+//! with the time that the application was started.
+//!
+//! The logs are mostly used to indicate errors. These messages are also output to the console.
+//!
+//!
+//! # Packet Forward Timing
+//! This program provides several options for when to forward a packet from
+//! the input to the output. The packets can be forwarded as soon as they
+//! are read, they can be delayed by a fixed amount, the packet rate can be throttled to only allow
+//! packets at a certain rate, or the packets can be replayed using the timestamps within the
+//! packets themselves.
+//! For replaying packets, the time stamp must be in the form of a number of seconds followed by
+//! subseconds, each of which must be 1/2/or 4 bytes. The subseconds have a configurable
+//! resolution.
+//! This covers many common cases, especially those that follow the CCSDS time format standard.
+//!
+//!
+//! # Framing
+//! The CCSDS packets processsed by this application can have a header or footer from another
+//! protocol. These must be fixed size, and can be forwarded along with the CCSDS packets or
+//! omitted.
+//!
 extern crate ccsds_primary_header;
 
 extern crate bytes;
@@ -83,7 +128,7 @@ fn main() {
 
     // Set Up Logging
     // we ignore the result as it will fail if the directory already exists.
-    let _ = create_dir("log");
+    let _ = create_dir("logs");
 
     let date = Local::now();
     let log_name = format!("{}", date.format("log/ccsds_router_log_%Y%m%d_%H_%M_%S.log"));
@@ -284,6 +329,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     packet_history.clear();
                 }
 
+                // if we are paused, ask to continue or cancel
                 if paused {
                     if ui.small_button(im_str!("Continue ")) {
                         info!("Continuing Processing");
@@ -301,6 +347,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                         sender.send(ProcessingMsg::Cancel).unwrap();
                     }
                 }
+                // if we are processing packets, ask to pause
                 else if processing {
                     if ui.small_button(im_str!("  Pause  ")) {
                         info!("Paused Processing");
@@ -318,16 +365,18 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                         sender.send(ProcessingMsg::Cancel).unwrap();
                     }
                 }
+                // otherwise, ask if we want to start processing packets
                 else {
                     if ui.small_button(im_str!("Start")) {
                         processing = true;
 
-                        info!("Start Processing");
+                        info!("Start Processing. Configuration file {}", config_file_name);
 
                         sender.send(ProcessingMsg::Start(config.clone())).unwrap();
                     }
                 }
 
+                // don't exit unless the user confirms their action
                 if ui.small_button(im_str!("Exit")) {
                     ui.open_popup(im_str!("Exit?"));
                 }
@@ -381,141 +430,141 @@ fn input_port(ui: &Ui, label: &ImStr, port: &mut u16) {
 
 fn configuration_ui(ui: &Ui, config: &mut AppConfig, config_file_name: &mut String, imgui_str: &mut ImString) {
     ui.child_frame(im_str!("Configuration"), (WINDOW_WIDTH - 15.0, 50.0))
-        .show_borders(true)
-        .build(|| {
-            input_string(ui, im_str!("Configuration File"), config_file_name, imgui_str);
+      .show_borders(true)
+      .build(|| {
+          input_string(ui, im_str!("Configuration File"), config_file_name, imgui_str);
 
-            if ui.small_button(im_str!("Save")) {
-                save_config(config, &config_file_name.clone());
-            }
+          if ui.small_button(im_str!("Save")) {
+              save_config(config, &config_file_name.clone());
+          }
 
-            ui.same_line(0.0);
+          ui.same_line(0.0);
 
-            if ui.small_button(im_str!("Load")) {
-                match load_config(&config_file_name.clone()) {
-                  Some(config_read) => {
-                      *config = config_read;
-                  },
+          if ui.small_button(im_str!("Load")) {
+              match load_config(&config_file_name.clone()) {
+                Some(config_read) => {
+                    *config = config_read;
+                },
 
-                  None => {
-                      error!("Could not load configuration file: {}", config_file_name);
-                  },
-                }
-            }
-        });
+                None => {
+                    error!("Could not load configuration file: {}", config_file_name);
+                },
+              }
+          }
+      });
 }
 
 fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut i32) {
     ui.child_frame(im_str!("CcsdsSettingsFrame"), (WINDOW_WIDTH - 15.0, 180.0))
-        .show_borders(true)
-        .build(|| {
-            ui.columns(2, im_str!("CcsdsSettingsCol"), false);
-            // Fixed or variable size packets
-            let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
-            ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
-            if fixed_size_packets {
-                ui.same_line(0.0);
-                let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
-                ui.input_int(im_str!("Packet Size (bytes)"), &mut packet_size).build();
-                config.packet_size = PacketSize::Fixed(packet_size as u16);
-            }
-            else {
-                config.packet_size = PacketSize::Variable;
-            }
+      .show_borders(true)
+      .build(|| {
+          ui.columns(2, im_str!("CcsdsSettingsCol"), false);
+          // Fixed or variable size packets
+          let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
+          ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
+          if fixed_size_packets {
+              ui.same_line(0.0);
+              let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
+              ui.input_int(im_str!("Packet Size (bytes)"), &mut packet_size).build();
+              config.packet_size = PacketSize::Fixed(packet_size as u16);
+          }
+          else {
+              config.packet_size = PacketSize::Variable;
+          }
 
-            ui.next_column();
+          ui.next_column();
 
-            // Endianness settings
-            ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds);
-            ui.next_column();
-            ui.separator();
+          // Endianness settings
+          ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds);
+          ui.next_column();
+          ui.separator();
 
-            // Pre and post section settings
-            ui.text("Prefix Bytes: ");
-            ui.same_line(0.0);
-            ui.input_int(im_str!(""), &mut config.frame_settings.prefix_bytes).build();
-            ui.next_column();
-            ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.frame_settings.keep_prefix);
-            ui.next_column();
+          // Pre and post section settings
+          ui.text("Prefix Bytes: ");
+          ui.same_line(0.0);
+          ui.input_int(im_str!(""), &mut config.frame_settings.prefix_bytes).build();
+          ui.next_column();
+          ui.checkbox(im_str!("Keep Prefix Bytes"), &mut config.frame_settings.keep_prefix);
+          ui.next_column();
 
-            ui.text("Postfix Bytes:");
-            ui.same_line(0.0);
-            ui.input_int(im_str!(""), &mut config.frame_settings.postfix_bytes).build();
-            ui.next_column();
-            ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.frame_settings.keep_postfix);
-            ui.next_column();
+          ui.text("Postfix Bytes:");
+          ui.same_line(0.0);
+          ui.input_int(im_str!(""), &mut config.frame_settings.postfix_bytes).build();
+          ui.next_column();
+          ui.checkbox(im_str!("Keep Postfix Bytes"), &mut config.frame_settings.keep_postfix);
+          ui.next_column();
 
-            ui.input_int(im_str!("Max Bytes"), &mut config.max_length_bytes).build();
-            ui.separator();
-            
-            // Timestamp settings
-            ui.text("Time Settings");
-            ui.columns(4, im_str!("SelectTimestampOption"), false);
-            ui.radio_button(im_str!("Forward Through"), timestamp_selection, 1);
-            ui.next_column();
-            ui.radio_button(im_str!("Replay"), timestamp_selection, 2);
-            ui.next_column();
-            ui.radio_button(im_str!("Delay"), timestamp_selection, 3);
-            ui.next_column();
-            ui.radio_button(im_str!("Throttle"), timestamp_selection, 4);
-            ui.next_column();
+          ui.input_int(im_str!("Max Bytes"), &mut config.max_length_bytes).build();
+          ui.separator();
+          
+          // Timestamp settings
+          ui.text("Time Settings");
+          ui.columns(4, im_str!("SelectTimestampOption"), false);
+          ui.radio_button(im_str!("Forward Through"), timestamp_selection, 1);
+          ui.next_column();
+          ui.radio_button(im_str!("Replay"), timestamp_selection, 2);
+          ui.next_column();
+          ui.radio_button(im_str!("Delay"), timestamp_selection, 3);
+          ui.next_column();
+          ui.radio_button(im_str!("Throttle"), timestamp_selection, 4);
+          ui.next_column();
 
-            //ui.columns(2, im_str!("SelectTimestampSettings"), false);
-            match timestamp_selection {
-                // ASAP
-                1 => {
-                    // no options required- just go as fast as possible
-                    config.timestamp_setting = TimestampSetting::Asap;
-                },
+          //ui.columns(2, im_str!("SelectTimestampSettings"), false);
+          match timestamp_selection {
+              // ASAP
+              1 => {
+                  // no options required- just go as fast as possible
+                  config.timestamp_setting = TimestampSetting::Asap;
+              },
 
-                // Replay
-                2 => {
-                    timestamp_def_ui(&ui, &mut config.timestamp_def);
-                    config.timestamp_setting = TimestampSetting::Replay;
-                },
+              // Replay
+              2 => {
+                  timestamp_def_ui(&ui, &mut config.timestamp_def);
+                  config.timestamp_setting = TimestampSetting::Replay;
+              },
 
-                // Delay
-                3 => {
-                    match config.timestamp_setting {
-                        TimestampSetting::Delay(delay) => {
-                            ui.text("Delay Time");
-                            ui.next_column();
-                            let mut delay_time = delay.as_fractional_secs() as f32;
-                            ui.input_float(im_str!("g"), &mut delay_time).build();
-                            config.timestamp_setting =
-                                TimestampSetting::Delay(Duration::new(delay_time as u64,
-                                                                      (delay_time.fract() * 1000000000.0) as u32));
-                        }
+              // Delay
+              3 => {
+                  match config.timestamp_setting {
+                      TimestampSetting::Delay(delay) => {
+                          ui.text("Delay Time");
+                          ui.next_column();
+                          let mut delay_time = delay.as_fractional_secs() as f32;
+                          ui.input_float(im_str!("g"), &mut delay_time).build();
+                          config.timestamp_setting =
+                              TimestampSetting::Delay(Duration::new(delay_time as u64,
+                                                                    (delay_time.fract() * 1000000000.0) as u32));
+                      }
 
-                        _ => {
-                            config.timestamp_setting = TimestampSetting::Delay(Duration::new(0, 0));
-                        }
-                    }
-                },
+                      _ => {
+                          config.timestamp_setting = TimestampSetting::Delay(Duration::new(0, 0));
+                      }
+                  }
+              },
 
-                // Throttle
-                4 => {
-                    match config.timestamp_setting {
-                        TimestampSetting::Throttle(delay) => {
-                            ui.text("Time Between Packets");
-                            ui.next_column();
-                            let mut delay_time = delay.as_fractional_secs() as f32;
-                            ui.input_float(im_str!("f"), &mut delay_time).build();
-                            config.timestamp_setting =
-                                TimestampSetting::Throttle(Duration::new(delay_time as u64,
-                                                                         (delay_time.fract() * 1_000_000_000.0) as u32));
-                        }
+              // Throttle
+              4 => {
+                  match config.timestamp_setting {
+                      TimestampSetting::Throttle(delay) => {
+                          ui.text("Time Between Packets");
+                          ui.next_column();
+                          let mut delay_time = delay.as_fractional_secs() as f32;
+                          ui.input_float(im_str!("f"), &mut delay_time).build();
+                          config.timestamp_setting =
+                              TimestampSetting::Throttle(Duration::new(delay_time as u64,
+                                                                       (delay_time.fract() * 1_000_000_000.0) as u32));
+                      }
 
-                        _ => {
-                            config.timestamp_setting = TimestampSetting::Throttle(Duration::new(0, 0));
-                        }
-                    }
-                },
+                      _ => {
+                          config.timestamp_setting = TimestampSetting::Throttle(Duration::new(0, 0));
+                      }
+                  }
+              },
 
-                _ => unreachable!(),
+              _ => unreachable!(),
 
-            }
-        });
+          }
+      });
 }
 
 fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {

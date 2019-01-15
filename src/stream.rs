@@ -8,11 +8,16 @@ use ccsds_primary_header::*;
 use types::*;
 
 
+/// The stream option is the input/output stream type
 #[derive(FromPrimitive, Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum StreamOption {
+    /// The stream is a file
     File      = 1,
+    /// The stream is a TCP client with a given port
     TcpClient = 2,
+    /// The stream is a TCP server with a given port
     TcpServer = 3,
+    /// The stream is a UDP socket with a given port
     Udp       = 4,
 }
 
@@ -23,6 +28,8 @@ impl Default for StreamOption {
 }
 
 /* Input Streams */
+/// The file settings are everything needed to open and read from a file as an input or output
+/// stream
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSettings {
     pub file_name: String,
@@ -34,6 +41,8 @@ impl Default for FileSettings {
     }
 }
 
+/// The tcp client settings are everything needed to open and read from a tcp socket as an input or output
+/// stream as a tcp client
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TcpClientSettings {
     pub port: u16,
@@ -48,6 +57,8 @@ impl Default for TcpClientSettings {
     }
 }
 
+/// The tcp server settings are everything needed to open and read from a tcp socket as an input or output
+/// stream as a tcp server
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TcpServerSettings {
     pub port: u16,
@@ -62,6 +73,8 @@ impl Default for TcpServerSettings {
     }
 }
 
+/// The udp settings are everything needed to open a UDP socket and use it as an input or output
+/// stream
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UdpSettings {
     pub port: u16,
@@ -76,6 +89,7 @@ impl Default for UdpSettings {
     }
 }
 
+/// The stream settings are all the settings for all stream types
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamSettings {
     pub file: FileSettings,
@@ -85,6 +99,7 @@ pub struct StreamSettings {
 }
 
 /* Input/Output Streams */
+/// A read stream a source of CCSDS packets
 #[derive(Debug)]
 pub enum ReadStream {
     File(BufReader<File>),
@@ -93,6 +108,7 @@ pub enum ReadStream {
     Null,
 }
 
+/// A read stream a sink of CCSDS packets
 #[derive(Debug)]
 pub enum WriteStream {
     File(File),
@@ -101,6 +117,7 @@ pub enum WriteStream {
     Null,
 }
 
+/// The endianess enum indicates the endianness of a field of a packet
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Endianness {
     Big,
@@ -113,6 +130,7 @@ impl Default for Endianness {
     }
 }
 
+/// The packet structure contains the data for a packet, as well as the primary header
 #[derive(Debug)]
 pub struct Packet {
     pub header: CcsdsPrimaryHeader,

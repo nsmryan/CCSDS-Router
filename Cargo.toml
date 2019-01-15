@@ -1,7 +1,7 @@
 [package]
-name = "rust_imgui_sdl"
+name = "ccsds_router"
 version = "0.1.0"
-authors = ["Noah Ryan <noah.m.ryan@nasa.gov>"]
+authors = ["Noah Ryan <nsmryan@gmail.com>"]
 
 [dependencies]
 imgui-sdl2 = "0.3.1"

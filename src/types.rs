@@ -23,27 +23,49 @@ impl Default for GuiTheme {
 }
 
 /* Application Configuration */
+/// Application configuration contains all configuration required to processing
+/// inputs and outputs. This struct is loaded from a configuration file at startup,
+/// and modified through the GUI.
+/// It is then passed to the processing thread to start processing packets.
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    /// Settings for input stream
     pub input_settings:  StreamSettings,
+    /// Selection of which type of stream to use for input
     pub input_selection:  StreamOption,
 
+    /// Settings for ouput stream
     pub output_settings: StreamSettings,
+    /// Selection of which type of stream to use for output
     pub output_selection: StreamOption,
 
+    /// GUI theme for IMGUI
     pub theme: GuiTheme,
 
+    /// The packet size for processing- either CCSDS or fixed size
     pub packet_size: PacketSize,
+    /// Is the CCSDS header little endian. This is a violation of the standard,
+    /// but may be encountered in some systems.
     pub little_endian_ccsds: bool,
 
+    /// The frame settings describe any fixed headers before or after the CCSDS headers.
     pub frame_settings: FrameSettings,
 
+    /// The maximum number of bytes in a packet. This is used to filter out malformed packets
+    /// when the maximum length is known beforehand.
     pub max_length_bytes: i32,
 
+    /// The timestamp settings describe how to throttle/delay/replay packets.
     pub timestamp_setting: TimestampSetting,
+    /// The timestamp definition describes the location and format of the packet's timestamp.
+    /// This must be in the form of a seconds and subseconds field each of 1/2/4 bytes and with
+    /// aubseconds of a given resolution.
     pub timestamp_def: TimestampDef,
 }
 
+/// The frame settings describe an enclosing packet header wrapping the CCSDS packets with a fixed
+/// number of bytes. There are options to remove or to keep the header/footer in case we want to
+/// strip it before forwarding packets, or keep it when forwarding packets.
 #[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct FrameSettings {
     pub prefix_bytes: i32,
@@ -240,15 +262,24 @@ impl ProcessingMsg {
 /// its possible states.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum ProcessingState {
+    /// The processing thread is paused during processing and is waiting for a command
     Paused,
+    /// The processing task is processing packets from an input
     Processing,
+    /// The processing task is idle and waiting for command to start or close
     Idle,
+    /// The processing task is terminating
     Terminating,
 }
 
+/// The packet size is used when reading CCSDS- a variable length packet uses the packet length in
+/// the CCSDS header, while a fixed size packet assumes we know the packet length beforehand and we
+/// do not want to use the packet length.
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum PacketSize {
+    /// The packet length is variable and depends on the CCSDS header
     Variable,
+    /// The packet length is fixed
     Fixed(u16),
 }
 
