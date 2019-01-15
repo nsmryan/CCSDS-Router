@@ -299,7 +299,6 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                     }
                 }
                 else {
-                    // NOTE this needs to be redone to allow pausing and resetting
                     if ui.small_button(im_str!("Start")) {
                         processing = true;
 
@@ -310,8 +309,20 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
                 }
 
                 if ui.small_button(im_str!("Exit")) {
-                    sender.send(ProcessingMsg::Terminate).unwrap();
+                    ui.open_popup(im_str!("Exit?"));
                 }
+                ui.popup_modal(im_str!("Exit?")).build(|| {
+                    ui.text("Exit the application?");
+                    if ui.small_button(im_str!("Exit")) {
+                        sender.send(ProcessingMsg::Terminate).unwrap();
+                    }
+
+                    ui.same_line(0.0);
+
+                    if ui.small_button(im_str!("Don't Exit")) {
+                        ui.close_current_popup();
+                    }
+                });
             });
 
 

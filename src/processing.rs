@@ -25,11 +25,11 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
     let mut endianness: Endianness = Endianness::Little;
 
-    let timestamp_setting: TimestampSetting = Default::default();
-    let timestamp_def: TimestampDef = Default::default();
+    let mut timestamp_setting: TimestampSetting = Default::default();
+    let mut timestamp_def: TimestampDef = Default::default();
 
-    let timeout = Duration::from_millis(0);
-    let last_send_time: SystemTime = SystemTime::now();
+    let mut timeout = Duration::from_millis(0);
+    let mut last_send_time: SystemTime = SystemTime::now();
 
     loop {
         match state {
@@ -159,15 +159,22 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         },
 
                         TimestampSetting::Delay(duration) => {
+                            // NOTE this puts a delay between each packet, rather then delaying
+                            // a stream of packets. the second design is more correct, but
+                            // would require a separate streaming thread to collect packets for
+                            // us to read out in the processing thread.
                             timeout = duration;
                         },
 
                         TimestampSetting::Throttle(duration) => {
-                            //match (SystemTime::now() - last_send_time).checked_sub(duration) {
-                            //    Some(remaining_time) => timeout = remaining_time,
+                            // NOTE we unwrap here assuming that system time does not go backwards.
+                            // this assumption is not always true, and we should handle this more
+                            // gracefully.
+                            match last_send_time.elapsed().unwrap().checked_sub(duration) {
+                                Some(remaining_time) => timeout = remaining_time,
 
-                            //    None => timeout = Duration::from_millis(0),
-                            //}
+                                None => timeout = Duration::from_millis(0),
+                            }
                         },
                     }
 
