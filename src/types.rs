@@ -72,6 +72,9 @@ pub struct PacketStats {
 
     /// The last sequence count read for this APID
     pub last_seq: u16,
+
+    /// The last packet length read for this APID
+    pub last_len: u16,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -94,10 +97,48 @@ impl PacketStats {
         self.packet_count += 1;
         self.byte_count += packet_update.packet_length as u32;
         self.last_seq = packet_update.seq_count;
+        self.last_len = packet_update.packet_length;
     }
 }
 
 /* Time Settings */
+/// The number of bytes in a time field. This is constrained to be
+/// a power of 2 from 0 to 2 covering the most common cases.
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub enum TimeSize {
+    ZeroBytes,
+    OneByte,
+    TwoBytes,
+    FourBytes,
+}
+
+impl Default for TimeSize {
+    fn default() -> Self {
+        TimeSize::ZeroBytes
+    }
+}
+
+impl TimeSize {
+    pub fn to_num_bytes(&self) -> usize {
+        match self {
+            TimeSize::ZeroBytes => 0,
+            TimeSize::OneByte   => 1,
+            TimeSize::TwoBytes  => 2,
+            TimeSize::FourBytes => 4,
+        }
+    }
+
+    pub fn from_num_bytes(num_bytes: usize) -> Self {
+        match num_bytes {
+            0 => TimeSize::ZeroBytes,
+            1 => TimeSize::OneByte,
+            2 => TimeSize::TwoBytes,
+            4 => TimeSize::FourBytes,
+            _ => TimeSize::ZeroBytes, // not a great default, but probably safe
+        }
+    }
+}
+
 /// Location and definition of packet timestamp.
 /// The allowed format is a seconds field followed by
 /// a subseconds field, where both fields may be any integer
@@ -113,15 +154,19 @@ pub struct TimestampDef {
     pub offset: i32,
 
     /// The number of bytes for the seconds field.
-    pub num_bytes_seconds: i32,
+    pub num_bytes_seconds: TimeSize,
 
     /// The number of bytes for the subseconds field.
-    pub num_bytes_subseconds: i32,
+    pub num_bytes_subseconds: TimeSize,
 
     /// The resolution of the subseconds field. For example, use 0.001
     /// for millisecond resolution, and 0.000001 for microsecond
     /// resolution, depending on the packet format.
     pub subsecond_resolution: f32,
+
+    /// The endianness of the seconds and subseconds field.
+    /// Using a bool makes the GUI code simplier.
+    pub is_little_endian: bool,
 }
 
 /// The TimestampSetting are the options for how to use time when 
@@ -193,6 +238,7 @@ impl ProcessingMsg {
 /* Packet Processing Thread State */
 /// The processing thread is a state machine, so this type gives
 /// its possible states.
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Serialize, Deserialize)]
 pub enum ProcessingState {
     Paused,
     Processing,

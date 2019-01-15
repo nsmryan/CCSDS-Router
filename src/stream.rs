@@ -101,10 +101,16 @@ pub enum WriteStream {
     Null,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum Endianness {
     Big,
     Little,
+}
+
+impl Default for Endianness {
+    fn default() -> Self {
+        Endianness::Big
+    }
 }
 
 #[derive(Debug)]
@@ -283,7 +289,7 @@ fn read_packet_from_reader<R>(reader: &mut R,
 
     read_bytes(reader, &mut packet.bytes, frame_settings.prefix_bytes as usize)?;
 
-    // if we do not keep the prefix, clear the packet before continueing
+    // if we do not keep the prefix, clear the packet before continuing
     if !frame_settings.keep_prefix {
         packet.bytes.clear();
     } else {
@@ -325,7 +331,7 @@ fn read_packet_from_reader<R>(reader: &mut R,
     // read the data section of the packet
     read_bytes(reader, &mut packet.bytes, data_size as usize)?;
 
-    packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
+    packet_length_bytes += data_size as i32;
 
     // read the data section of the packet
     read_bytes(reader, &mut packet.bytes, frame_settings.postfix_bytes as usize)?;
@@ -336,7 +342,7 @@ fn read_packet_from_reader<R>(reader: &mut R,
         packet.bytes.truncate(packet_length_bytes as usize);
     } else {
         // otherwise keep the postfix bytes
-        packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
+        packet_length_bytes += frame_settings.postfix_bytes as i32;
     }
 
     Ok(packet_length_bytes as usize)

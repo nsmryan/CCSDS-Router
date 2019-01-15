@@ -38,16 +38,19 @@
   "theme": "Dark",
   "packet_size": "Variable",
   "little_endian_ccsds": true,
-  "prefix_bytes": 0,
-  "keep_prefix": false,
-  "postfix_bytes": 0,
-  "keep_postfix": false,
+  "frame_settings": {
+    "prefix_bytes": 0,
+    "keep_prefix": false,
+    "postfix_bytes": 0,
+    "keep_postfix": false
+  },
   "max_length_bytes": 65542,
-  "timestamp_setting": "Asap",
+  "timestamp_setting": "Replay",
   "timestamp_def": {
     "offset": 0,
-    "num_bytes_seconds": 0,
-    "num_bytes_subseconds": 0,
-    "subsecond_resolution": 0.0
+    "num_bytes_seconds": "FourBytes",
+    "num_bytes_subseconds": "FourBytes",
+    "subsecond_resolution": 0.000001,
+    "is_little_endian": true
   }
 }

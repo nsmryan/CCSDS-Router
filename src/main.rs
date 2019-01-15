@@ -456,14 +456,12 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
 
                 // Delay
                 3 => {
-                    timestamp_def_ui(&ui, &mut config.timestamp_def);
                     match config.timestamp_setting {
                         TimestampSetting::Delay(delay) => {
-                            ui.next_column();
                             ui.text("Delay Time");
                             ui.next_column();
                             let mut delay_time = delay.as_fractional_secs() as f32;
-                            ui.input_float(im_str!(""), &mut delay_time).build();
+                            ui.input_float(im_str!("g"), &mut delay_time).build();
                             config.timestamp_setting =
                                 TimestampSetting::Delay(Duration::new(delay_time as u64,
                                                                       (delay_time.fract() * 1000000000.0) as u32));
@@ -477,17 +475,15 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
 
                 // Throttle
                 4 => {
-                    timestamp_def_ui(&ui, &mut config.timestamp_def);
                     match config.timestamp_setting {
                         TimestampSetting::Throttle(delay) => {
-                            ui.next_column();
-                            ui.text("Max Time");
+                            ui.text("Time Between Packets");
                             ui.next_column();
                             let mut delay_time = delay.as_fractional_secs() as f32;
-                            ui.input_float(im_str!(""), &mut delay_time).build();
+                            ui.input_float(im_str!("f"), &mut delay_time).build();
                             config.timestamp_setting =
                                 TimestampSetting::Throttle(Duration::new(delay_time as u64,
-                                                                         (delay_time.fract() * 1000000000.0) as u32));
+                                                                         (delay_time.fract() * 1_000_000_000.0) as u32));
                         }
 
                         _ => {
@@ -515,7 +511,7 @@ fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
 
             ui.separator();
 
-            ui.columns(8, im_str!("PacketStats"), true);
+            ui.columns(10, im_str!("PacketStats"), true);
 
             for packet_stats in packet_history.values() {
                 ui.text("Apid: ");
@@ -528,9 +524,14 @@ fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
                 ui.text(format!("{:>5}", packet_stats.packet_count.to_string()));
 
                 ui.next_column();
-                ui.text("Bytes: ");
+                ui.text("Total Bytes: ");
                 ui.next_column();
                 ui.text(format!("{:>9}", &packet_stats.byte_count.to_string()));
+
+                ui.next_column();
+                ui.text("Byte Len:");
+                ui.next_column();
+                ui.text(format!("{:>5}", &packet_stats.last_len.to_string()));
 
                 ui.next_column();
                 ui.text("Last Seq:");
@@ -570,12 +571,16 @@ fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
 fn timestamp_def_ui(ui: &Ui, timestamp_def: &mut TimestampDef) {
     ui.text("Bytes For Seconds");
     ui.next_column();
-    ui.input_int(im_str!("a"), &mut timestamp_def.num_bytes_seconds).build();
+    let mut num_bytes_selection = timestamp_def.num_bytes_seconds.to_num_bytes() as i32;
+    ui.input_int(im_str!("a"), &mut num_bytes_selection).build();
+    timestamp_def.num_bytes_seconds = TimeSize::from_num_bytes(num_bytes_selection as usize);
 
     ui.next_column();
     ui.text("Bytes For Subseconds");
     ui.next_column();
-    ui.input_int(im_str!("b"), &mut timestamp_def.num_bytes_subseconds).build();
+    let mut num_bytes_selection = timestamp_def.num_bytes_subseconds.to_num_bytes() as i32;
+    ui.input_int(im_str!("b"), &mut num_bytes_selection).build();
+    timestamp_def.num_bytes_subseconds = TimeSize::from_num_bytes(num_bytes_selection as usize);
 
     ui.next_column();
     ui.text("Bytes Past Header");
@@ -586,6 +591,11 @@ fn timestamp_def_ui(ui: &Ui, timestamp_def: &mut TimestampDef) {
     ui.text("Subsecond Resolution");
     ui.next_column();
     ui.input_float(im_str!("d"), &mut timestamp_def.subsecond_resolution).build();
+
+    ui.next_column();
+    ui.text("Endianness");
+    ui.next_column();
+    ui.checkbox(im_str!("Little Endian"), &mut timestamp_def.is_little_endian);
 }
 
 fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImString) {
@@ -620,7 +630,7 @@ fn stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamS
         StreamOption::Udp => {
             ui.text(im_str!("Select Udp Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP Address"), &mut input_settings.udp.ip, imgui_str);
+            input_string(&ui, im_str!("IP"), &mut input_settings.udp.ip, imgui_str);
             ui.next_column();
             input_port(&ui, &mut im_str!("Port"), &mut input_settings.udp.port);
         },
@@ -628,7 +638,7 @@ fn stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamS
         StreamOption::TcpClient => {
             ui.text(im_str!("Select Tcp Client Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP Address"), &mut input_settings.tcp_client.ip, imgui_str);
+            input_string(&ui, im_str!("IP"), &mut input_settings.tcp_client.ip, imgui_str);
             ui.next_column();
             input_port(&ui, im_str!("Port"), &mut input_settings.tcp_client.port);
         },
@@ -636,7 +646,7 @@ fn stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamS
         StreamOption::TcpServer => {
             ui.text(im_str!("Select Tcp Server Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP Address"), &mut input_settings.tcp_server.ip, imgui_str);
+            input_string(&ui, im_str!("IP"), &mut input_settings.tcp_server.ip, imgui_str);
             ui.next_column();
             input_port(&ui, im_str!("Port"), &mut input_settings.tcp_server.port);
         },
