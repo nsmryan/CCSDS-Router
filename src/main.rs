@@ -527,10 +527,11 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
               3 => {
                   match config.timestamp_setting {
                       TimestampSetting::Delay(delay) => {
-                          ui.text("Delay Time");
-                          ui.next_column();
+                          ui.columns(2, im_str!("SpecificTimeSettings"), false);
+                          //ui.text("Delay Time");
+                          //ui.next_column();
                           let mut delay_time = delay.as_fractional_secs() as f32;
-                          ui.input_float(im_str!("g"), &mut delay_time).build();
+                          ui.input_float(im_str!("Delay Time"), &mut delay_time).build();
                           config.timestamp_setting =
                               TimestampSetting::Delay(Duration::new(delay_time as u64,
                                                                     (delay_time.fract() * 1000000000.0) as u32));
@@ -546,10 +547,11 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
               4 => {
                   match config.timestamp_setting {
                       TimestampSetting::Throttle(delay) => {
-                          ui.text("Time Between Packets");
-                          ui.next_column();
+                          ui.columns(2, im_str!("SpecificTimeSettings"), false);
+                          //ui.text("Time Between Packets");
+                          //ui.next_column();
                           let mut delay_time = delay.as_fractional_secs() as f32;
-                          ui.input_float(im_str!("f"), &mut delay_time).build();
+                          ui.input_float(im_str!("Time Between Packets"), &mut delay_time).build();
                           config.timestamp_setting =
                               TimestampSetting::Throttle(Duration::new(delay_time as u64,
                                                                        (delay_time.fract() * 1_000_000_000.0) as u32));
@@ -568,7 +570,7 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
 }
 
 fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
-    ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 220.0))
+    ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 320.0))
         .show_borders(true)
         .show_scrollbar(true)
         .always_show_vertical_scroll_bar(true)
@@ -638,31 +640,22 @@ fn packet_statistics_ui(ui: &Ui, packet_history: &PacketHistory) {
 }
 
 fn timestamp_def_ui(ui: &Ui, timestamp_def: &mut TimestampDef) {
-    ui.text("Bytes For Seconds");
-    ui.next_column();
+     ui.columns(2, im_str!("TimeDefinitions"), false);
     let mut num_bytes_selection = timestamp_def.num_bytes_seconds.to_num_bytes() as i32;
-    ui.input_int(im_str!("a"), &mut num_bytes_selection).build();
+    ui.input_int(im_str!("Byte For Seconds"), &mut num_bytes_selection).build();
     timestamp_def.num_bytes_seconds = TimeSize::from_num_bytes(num_bytes_selection as usize);
 
     ui.next_column();
-    ui.text("Bytes For Subseconds");
-    ui.next_column();
     let mut num_bytes_selection = timestamp_def.num_bytes_subseconds.to_num_bytes() as i32;
-    ui.input_int(im_str!("b"), &mut num_bytes_selection).build();
+    ui.input_int(im_str!("Bytes for Subsecs"), &mut num_bytes_selection).build();
     timestamp_def.num_bytes_subseconds = TimeSize::from_num_bytes(num_bytes_selection as usize);
 
     ui.next_column();
-    ui.text("Bytes Past Header");
-    ui.next_column();
-    ui.input_int(im_str!("c"), &mut timestamp_def.offset).build();
+    ui.input_int(im_str!("Bytes Past Header"), &mut timestamp_def.offset).build();
 
     ui.next_column();
-    ui.text("Subsecond Resolution");
-    ui.next_column();
-    ui.input_float(im_str!("d"), &mut timestamp_def.subsecond_resolution).build();
+    ui.input_float(im_str!("Subsec Resolution"), &mut timestamp_def.subsecond_resolution).build();
 
-    ui.next_column();
-    ui.text("Endianness");
     ui.next_column();
     ui.checkbox(im_str!("Little Endian"), &mut timestamp_def.is_little_endian);
 }
