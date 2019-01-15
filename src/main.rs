@@ -17,6 +17,8 @@ extern crate chrono;
 
 extern crate floating_duration;
 
+extern crate structopt;
+
 extern crate sdl2;
 extern crate imgui;
 extern crate imgui_sdl2;
@@ -33,12 +35,15 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::fs::File;
 use std::fs::create_dir;
+use std::path::PathBuf;
 
 use simplelog::*;
 
 use chrono::prelude::*;
 
 use floating_duration::TimeAsFloat;
+
+use structopt::*;
 
 use imgui::*;
 
@@ -62,7 +67,20 @@ const WINDOW_WIDTH:  f32 = 840.0;
 const WINDOW_HEIGHT: f32 = 740.0;
 
 
+#[derive(Debug, StructOpt)]
+struct Opt {
+    #[structopt(parse(from_os_str))]
+    config_file_name: Option<PathBuf>,
+}
+
+
 fn main() {
+    let opt = Opt::from_args();
+
+    let mut config: AppConfig;
+
+    let mut config_file_name: String;
+
     // Set Up Logging
     // we ignore the result as it will fail if the directory already exists.
     let _ = create_dir("log");
@@ -74,6 +92,32 @@ fn main() {
                                       )).unwrap();
 
 
+    // Read configuration file
+    match opt.config_file_name {
+        Some(path) => config_file_name = path.to_string_lossy().to_string(),
+        None => config_file_name = "ccsds_router.json".to_string(),
+    }
+
+    // Load the initial configuration
+    match load_config(&config_file_name) {
+      Some(config_read) => {
+          let config_used = format!("Configuration Used: {}", config_file_name);
+          info!("{}", config_used);
+
+          config = config_read;
+      },
+
+      None => {
+          // use defaults if no config was read
+          warn!("Configuration '{}' provided. Default Configuration Used", config_file_name);
+          config = Default::default();
+
+          // the default max length is 0xFFFF in the length field, 
+          // plus the size of a CCSDS Primary header, plus 1.
+          config.max_length_bytes = 65535 + 6 + 1;
+      },
+    }
+
     // Spawn processing thread
     let (gui_sender,  gui_receiver)  = channel::<GuiMessage>();
     let (proc_sender, proc_receiver) = channel::<ProcessingMsg>();
@@ -84,17 +128,17 @@ fn main() {
 
 
     // Run GUI main loop
-    // NOTE allow option to supress displaying GUI
-    run_gui( gui_receiver, proc_sender );
+    run_gui( &mut config, &mut config_file_name, gui_receiver, proc_sender );
 
 
     // Clean up and Exit 
     ccsds_thread.join().unwrap();
 
+
     info!("Exiting");
 }
 
-fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
+fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     let sdl_context = sdl2::init().unwrap();
     let video = sdl_context.video().unwrap();
 
@@ -131,36 +175,12 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     /* Application State */
     let mut packet_history: PacketHistory = HashMap::new();
 
-    let mut config: AppConfig;
-
-    // NOTE make this an input
-    let mut config_file_name = "ccsds_router.json".to_string();
-
     // NOTE this could be a state machine instead of bools
     let mut paused = false;
     let mut processing = false;
 
     // index of selection for how to treat timestamps
     let mut timestamp_selection: i32 = 1;
-
-    // Load the initial configuration
-    match load_config(&config_file_name.clone()) {
-      Some(config_read) => {
-          let config_used = format!("Configuration Used: {}", config_file_name);
-          info!("{}", config_used);
-          config = config_read;
-      },
-
-      None => {
-          // use defaults if no config was read
-          info!("Default Configuration Used");
-          config = Default::default();
-
-          // NOTE the default max length is 0xFFFF in the length field, 
-          // plus the size of a CCSDS Primary header, plus 1.
-          config.max_length_bytes = 65535 + 6 + 1;
-      },
-    }
 
     match config.theme {
         GuiTheme::Dark => {
@@ -225,7 +245,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
             .build(|| {
                 /* Configuration Settings */
                 ui.text("Configuration");
-                configuration_ui(&ui, &mut config, &mut config_file_name, &mut imgui_str);
+                configuration_ui(&ui, config, config_file_name, &mut imgui_str);
 
                 /* Source Selection */
                 ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 80.0))
@@ -252,7 +272,7 @@ fn run_gui(receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
 
                 /* CCSDS Packet Settings */
                 ui.text("CCSDS Settings");
-                packet_settings_ui(&ui, &mut config, &mut timestamp_selection);
+                packet_settings_ui(&ui, config, &mut timestamp_selection);
 
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
