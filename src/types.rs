@@ -94,6 +94,7 @@ pub struct FrameSettings {
 pub struct ProcessingStats {
     pub packet_history: HashMap<Apid, PacketStats>,
     pub packets_per_second: usize,
+    pub bytes_per_second: usize,
 }
 
 #[derive(PartialEq, Clone, Eq, Debug)]

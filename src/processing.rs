@@ -202,6 +202,8 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
             },
 
             ProcessingState::Processing => {
+                system_to_packet_time = None;
+
                 while state == ProcessingState::Processing {
                     /* Process a Packet */
                     // NOTE need to handle timing out for network reads and still responding to
@@ -226,7 +228,6 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                         TimestampSetting::Replay => {
                            let timestamp = decode_timestamp(&packet.bytes, &timestamp_def);
-                           println!("packet time = {:?}", timestamp);
 
                             match system_to_packet_time {
                                 None => {
@@ -313,7 +314,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                         // the remaining timeout is the duration from now to the send time. if the
                         // send time is in the past, use a duration of 0.
-                        remaining_timeout = SystemTime::now().duration_since(time_to_send).unwrap_or(Duration::from_secs(0));;
+                        remaining_timeout = SystemTime::now().duration_since(time_to_send).unwrap_or(Duration::from_secs(0));
                     }
 
                     // check that the packet is within the allowed length. note that this is based

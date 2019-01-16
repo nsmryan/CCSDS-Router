@@ -305,6 +305,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     let mut timestamp_selection: i32 = 1;
 
     let mut packet_recv_diffs: VecDeque<SystemTime> = VecDeque::new();
+    let mut packet_recv_bytes: VecDeque<usize> = VecDeque::new();
 
     match config.theme {
         GuiTheme::Dark => {
@@ -346,9 +347,10 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 GuiMessage::PacketUpdate(packet_update) => {
                     let apid = packet_update.apid;
                     let packet_stats = processing_stats.packet_history.entry(apid).or_default();
+                    let packet_length = packet_update.packet_length as usize;
                     packet_stats.update(packet_update);
-                    //packet_recv_diffs.push_back(packet_update.recv_time);
                     packet_recv_diffs.push_back(packet_stats.recv_time);
+                    packet_recv_bytes.push_back(packet_length);
                 },
 
                 GuiMessage::PacketDropped(header) => {
@@ -368,7 +370,9 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
         if packet_recv_diffs.len() > 0  &&
               SystemTime::now().duration_since(*packet_recv_diffs.get(0).unwrap()).unwrap() > Duration::from_secs(1) {
             processing_stats.packets_per_second = packet_recv_diffs.len();
+            processing_stats.bytes_per_second = packet_recv_bytes.iter().sum();
             packet_recv_diffs.clear();
+            packet_recv_bytes.clear();
         }
 
         /* IMGUI UI */
@@ -805,10 +809,13 @@ fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dro
             ui.text(format!("Apids Seen: {:3} ", count));
 
             ui.same_line(0.0);
-            ui.text(format!("Packets Dropped: {:4>}", packets_dropped));
+            ui.text(format!("Packets Dropped: {:>4}", packets_dropped));
 
             ui.same_line(0.0);
-            ui.text(format!("Packets Per Second: {:4>}", processing_stats.packets_per_second));
+            ui.text(format!("Packets Per Second: {:>4}", processing_stats.packets_per_second));
+
+            ui.same_line(0.0);
+            ui.text(format!("Bytes Per Second: {:>4}", processing_stats.bytes_per_second));
 
             ui.separator();
 
