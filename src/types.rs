@@ -69,6 +69,11 @@ pub struct AppConfig {
     /// This must be in the form of a seconds and subseconds field each of 1/2/4 bytes and with
     /// aubseconds of a given resolution.
     pub timestamp_def: TimestampDef,
+
+    /// Start processing on application startup, rather then waiting for the user to click on the
+    /// start button.
+    #[serde(default)]
+    pub auto_start: bool,
 }
 
 /// The frame settings describe an enclosing packet header wrapping the CCSDS packets with a fixed

@@ -62,10 +62,12 @@ extern crate chrono;
 
 extern crate floating_duration;
 
-extern crate structopt;
+#[macro_use] extern crate structopt;
 
 extern crate hexdump;
 extern crate itertools;
+
+extern crate ctrlc;
 
 extern crate sdl2;
 extern crate imgui;
@@ -78,7 +80,7 @@ use std::time::{Duration, SystemTime};
 use std::thread;
 use std::io::{Write, Read};
 use std::default::Default;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{VecDeque};
 use std::sync::mpsc::{channel, Sender, Receiver};
 use std::fs::File;
 use std::fs::create_dir;
@@ -109,6 +111,9 @@ use processing::*;
 mod style;
 use style::*;
 
+mod ccsds_utils;
+use ccsds_utils::*;
+
 
 /// Window width given to SDL
 const WINDOW_WIDTH:  f32 = 840.0;
@@ -130,11 +135,14 @@ const LOG_DIRECTORY: &str = "logs";
 
 
 #[derive(Debug, StructOpt)]
+#[structopt(name = "ccsds_router", about = "CCSDS Router moves CCSDS packets from an input to an output")]
 struct Opt {
+    #[structopt(short = "s", long = "supressgui")]
+    supress_gui: bool,
+
     #[structopt(parse(from_os_str))]
     config_file_name: Option<PathBuf>,
 }
-
 
 fn main() {
     let opt = Opt::from_args();
@@ -188,9 +196,54 @@ fn main() {
         process_thread( gui_sender, proc_receiver );
     });
 
+    // Set up ctrl-c handling
+    let proc_sender_clone = proc_sender.clone();
+    ctrlc::set_handler(move || {
+        proc_sender_clone.send(ProcessingMsg::Terminate).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+    }).expect("Error setting up ctrl-c handling");
 
-    // Run GUI main loop
-    run_gui( &mut config, &mut config_file_name, gui_receiver, proc_sender );
+    // if we run without a GUI, make sure to autostart or nothing will happen.
+    if opt.supress_gui {
+        config.auto_start = true;
+    }
+
+    // If auto start is selected, start the processing thread immediately
+    if config.auto_start {
+        info!("Auto Start Processing. Configuration file {}", config_file_name);
+
+        proc_sender.send(ProcessingMsg::Start(config.clone())).unwrap();
+    }
+
+    if opt.supress_gui {
+        info!("Running without GUI");
+        // if no gui is run, just read messages until the processing thread is finished
+        while let Ok(msg_result) = gui_receiver.recv_timeout(Duration::from_millis(500)) {
+
+            match msg_result {
+                    GuiMessage::Terminate => {
+                    break;
+                },
+
+                GuiMessage::PacketUpdate(packet_update) => {
+                },
+
+                GuiMessage::PacketDropped(header) => {
+                },
+
+                GuiMessage::Finished => {
+                    break;
+                },
+
+                GuiMessage::Error(error_msg) => {
+                    error!("{}", error_msg);
+                },
+            }
+        }
+    } else {
+        // Run GUI main loop
+        run_gui( &mut config, &mut config_file_name, gui_receiver, proc_sender );
+    }
 
 
     // Clean up and Exit 
@@ -492,6 +545,9 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     if ui.small_button(im_str!("Start")) {
                         processing = true;
 
+                        // the current configuration is always saved when processing.
+                        // This is to prevent running a configuration that is not saved anywhere.
+                        save_config(config, &config_file_name.clone());
                         info!("Start Processing. Configuration file {}", config_file_name);
 
                         sender.send(ProcessingMsg::Start(config.clone())).unwrap();
