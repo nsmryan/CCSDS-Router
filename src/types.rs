@@ -37,8 +37,11 @@ pub struct AppConfig {
 
     /// Settings for ouput stream
     pub output_settings: StreamSettings,
+
     /// Selection of which type of stream to use for output
     pub output_selection: StreamOption,
+
+    pub allowed_apids: Option<Vec<u16>>,
 
     /// GUI theme for IMGUI
     pub theme: GuiTheme,

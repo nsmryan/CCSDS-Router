@@ -103,6 +103,8 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
     let mut timeout: Duration;
     let mut last_send_time: SystemTime = SystemTime::now();
 
+    let mut allowed_apids = None;
+
     let mut system_to_packet_time: Option<SystemTime> = None;
 
     'state_loop: loop {
@@ -120,6 +122,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         frame_settings = config.frame_settings;
                         timestamp_setting = config.timestamp_setting;
                         timestamp_def = config.timestamp_def;
+                        allowed_apids = config.allowed_apids.clone();
 
                         // get endianness to use
                         if config.little_endian_ccsds {
@@ -316,21 +319,28 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                     // check that the packet is within the allowed length. note that this is based
                     // on the CCSDS packet length, ignoring pre or postfix bytes in the frame.
                     if packet.header.packet_length() as usize <= max_length_bytes {
-                        stream_send(&mut out_stream, &packet.bytes);
+                        let apid_is_allowed;
+                        match &allowed_apids {
+                            None => apid_is_allowed = true,
+                            Some(apid_list) => apid_is_allowed = apid_list.contains(&packet.header.control.apid()),
+                        }
+                        if apid_is_allowed {
+                            stream_send(&mut out_stream, &packet.bytes);
 
-                        /* Report packet to GUI */
-                        let mut packet_update = PacketUpdate { apid: packet.header.control.apid(),
-                                                               packet_length: packet.bytes.len() as u16,
-                                                               seq_count: packet.header.sequence.sequence_count(),
-                                                               recv_time: recv_time,
-                                                               bytes: Vec::new(),
-                                                             };
+                            /* Report packet to GUI */
+                            let mut packet_update = PacketUpdate { apid: packet.header.control.apid(),
+                                                                   packet_length: packet.bytes.len() as u16,
+                                                                   seq_count: packet.header.sequence.sequence_count(),
+                                                                   recv_time: recv_time,
+                                                                   bytes: Vec::new(),
+                                                                 };
 
-                        packet_update.bytes.extend(packet.bytes.clone());
+                            packet_update.bytes.extend(packet.bytes.clone());
 
-                        last_send_time = SystemTime::now();
+                            last_send_time = SystemTime::now();
 
-                        sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
+                            sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
+                        }
                     } else {
                         sender.send(GuiMessage::Error(format!("Unexpected message length {} for APID {}. Packet Dropped",
                                                               packet.bytes.len(),

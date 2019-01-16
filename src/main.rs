@@ -383,7 +383,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                         .show_scrollbar(true)
                         .always_show_vertical_scroll_bar(true)
                         .build(|| {
-                            output_stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut imgui_str);
+                            output_stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut config.allowed_apids, &mut imgui_str);
                         });
                 }
 
@@ -896,7 +896,11 @@ fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut S
     }
 }
 
-fn output_stream_ui(ui: &Ui, selection: &mut StreamOption, output_settings: &mut StreamSettings, imgui_str: &mut ImString) {
+fn output_stream_ui(ui: &Ui,
+                    selection: &mut StreamOption,
+                    output_settings: &mut StreamSettings,
+                    allowed_apids: &mut Option<Vec<u16>>,
+                    imgui_str: &mut ImString) {
     let mut input_selection: i32 = *selection as i32;
 
     ui.columns(5, im_str!("SelectOutput"), false);
@@ -942,6 +946,36 @@ fn output_stream_ui(ui: &Ui, selection: &mut StreamOption, output_settings: &mut
             ui.next_column();
             input_port(&ui, im_str!("Port"), &mut output_settings.tcp_server.port);
         },
+    }
+
+    ui.next_column();
+    let mut filter_apids = allowed_apids.is_some();
+
+    ui.checkbox(im_str!("Filter APIDs"), &mut filter_apids);
+    let mut apid_list;
+    if allowed_apids.is_none() {
+        apid_list = Vec::new();
+    } else {
+        apid_list = allowed_apids.clone().unwrap();
+    }
+
+    if filter_apids {
+        let mut apid_list_str: String = "".to_string();
+        for apid in  apid_list.iter() {
+            apid_list_str.push_str(&apid.to_string());
+            apid_list_str.push(',');
+        }
+        input_string(&ui, im_str!("Allowed APIDs"), &mut apid_list_str, imgui_str);
+        apid_list.clear();
+        for apid_str in apid_list_str.split(",") {
+            match apid_str.parse() {
+                Ok(apid) => apid_list.push(apid),
+                Err(_) => {},
+            }
+        }
+        *allowed_apids = Some(apid_list);
+    } else {
+        *allowed_apids = None;
     }
 }
 
