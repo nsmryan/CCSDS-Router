@@ -1,9 +1,18 @@
 # CCSDS Router
 This application is a tool for moving CCSDS packets (CCSDS Space Packet Protocol) between
-files, UDP sockets, and TCP sockets (client or server). The main uses cases are to store
-CCSDS packets coming in from the network, replaying stored data for testing, and delaying or
-throttling CCSDS traffic.
+files, UDP sockets, and TCP sockets (client or server). It can be run as a GUI program, or
+run from a configuration file on the command line.
 
+
+The main uses cases are to store CCSDS packets coming in from the network, replaying stored
+data for testing, and delaying or throttling CCSDS traffic for testing or production. If
+you have CCSDS packets from a source, and want to send them to a destination, then this may
+be the tool for you!
+
+
+# Configuration
+There are a number of configuration options. These include the source and destination, when to forward a packet,
+limits on APID and packet size, and option headers and footers around the packet. These are described below.
 
 
 ## Timing
