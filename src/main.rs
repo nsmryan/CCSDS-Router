@@ -116,6 +116,16 @@ const WINDOW_WIDTH:  f32 = 840.0;
 /// Window height given to SDL
 const WINDOW_HEIGHT: f32 = 740.0;
 
+const STATS_FRAME_HEIGHT: f32 = 205.0;
+
+const CONFIG_SETTINGS_FRAME_HEIGHT: f32 = 50.0;
+
+const INPUT_SETTINGS_FRAME_HEIGHT: f32 = 65.0;
+
+const OUTPUT_SETTINGS_FRAME_HEIGHT: f32 = 100.0;
+
+const CCSDS_SETTINGS_FRAME_HEIGHT: f32 = 180.0;
+
 const LOG_DIRECTORY: &str = "logs";
 
 
@@ -231,6 +241,11 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     let mut paused = false;
     let mut processing = false;
 
+    let mut input_settings_shown = true;
+    let mut output_settings_shown = true;
+    let mut ccsds_settings_shown = true;
+    let mut config_settings_shown = true;
+ 
     // index of selection for how to treat timestamps
     let mut timestamp_selection: i32 = 1;
 
@@ -304,41 +319,88 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
             .position((0.0, 0.0), ImGuiCond::FirstUseEver)
             .size((WINDOW_WIDTH, WINDOW_HEIGHT), ImGuiCond::FirstUseEver)
             .title_bar(false)
+            .movable(false)
+            .scrollable(false)
+            .resizable(false)
+            .collapsible(false)
             .build(|| {
                 /* Configuration Settings */
                 ui.text("Configuration");
-                configuration_ui(&ui, config, config_file_name, &mut imgui_str);
+                ui.same_line(0.0);
+                ui.with_id("ToggleConfigSettings", || {
+                    if ui.small_button(im_str!("Toggle")) {
+                        config_settings_shown = !config_settings_shown;
+                    }
+                });
+                if config_settings_shown {
+                    configuration_ui(&ui, config, config_file_name, &mut imgui_str);
+                }
 
                 /* Source Selection */
-                ui.child_frame(im_str!("SelectInputType"), (WINDOW_WIDTH - 15.0, 80.0))
-                    .show_borders(false)
-                    .build(|| {
-                        ui.columns(2, im_str!("InputOutputSettings"), false);
 
-                        ui.text("Input Settings");
-                        ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0) / 2.0, 65.0))
-                            .show_borders(true)
-                            .build(|| {
-                                stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
-                            });
+                ui.text("Input Settings");
+                ui.same_line(0.0);
+                ui.with_id("ToggleInputSettings", || {
+                    if ui.small_button(im_str!("Toggle")) {
+                        input_settings_shown = !input_settings_shown;
+                    }
+                });
+                if input_settings_shown {
+                    ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0), INPUT_SETTINGS_FRAME_HEIGHT))
+                        .show_borders(true)
+                        .collapsible(true)
+                        .build(|| {
+                            input_stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
+                        });
+                }
 
-                        ui.next_column();
-
-                        ui.text("Output Settings");
-                        ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0) / 2.0, 65.0))
-                            .show_borders(true)
-                            .build(|| {
-                                stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut imgui_str);
-                            });
-                    });
+                ui.text("Output Settings");
+                ui.same_line(0.0);
+                ui.with_id("ToggleOutputSettings", || {
+                    if ui.small_button(im_str!("Toggle")) {
+                        output_settings_shown = !output_settings_shown;
+                    }
+                });
+                if output_settings_shown {
+                    ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0), OUTPUT_SETTINGS_FRAME_HEIGHT))
+                        .movable(true)
+                        .show_borders(true)
+                        .collapsible(true)
+                        .show_scrollbar(true)
+                        .always_show_vertical_scroll_bar(true)
+                        .build(|| {
+                            output_stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut imgui_str);
+                        });
+                }
 
                 /* CCSDS Packet Settings */
                 ui.text("CCSDS Settings");
-                packet_settings_ui(&ui, config, &mut timestamp_selection);
+                ui.same_line(0.0);
+                ui.with_id("ToggleCcsdsSettings", || {
+                    if ui.small_button(im_str!("Toggle")) {
+                        ccsds_settings_shown = !ccsds_settings_shown;
+                    }
+                });
+                if ccsds_settings_shown {
+                    packet_settings_ui(&ui, config, &mut timestamp_selection);
+                }
 
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
-                packet_statistics_ui(&ui, &processing_stats);
+                let mut dims = ImVec2::new(WINDOW_WIDTH - 15.0, STATS_FRAME_HEIGHT);
+                if !config_settings_shown {
+                    dims.y += CONFIG_SETTINGS_FRAME_HEIGHT;
+                }
+                if !input_settings_shown {
+                    dims.y += INPUT_SETTINGS_FRAME_HEIGHT;
+                }
+                if !output_settings_shown {
+                    dims.y += OUTPUT_SETTINGS_FRAME_HEIGHT;
+                }
+                if !ccsds_settings_shown {
+                    dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
+                }
+                packet_statistics_ui(&ui, &processing_stats, dims);
 
                 /* Control Buttons */
                 if ui.small_button(im_str!("Clear Stats")) {
@@ -446,8 +508,9 @@ fn input_port(ui: &Ui, label: &ImStr, port: &mut u16) {
 }
 
 fn configuration_ui(ui: &Ui, config: &mut AppConfig, config_file_name: &mut String, imgui_str: &mut ImString) {
-    ui.child_frame(im_str!("Configuration"), (WINDOW_WIDTH - 15.0, 50.0))
+    ui.child_frame(im_str!("Configuration"), (WINDOW_WIDTH - 15.0, CONFIG_SETTINGS_FRAME_HEIGHT))
       .show_borders(true)
+      .collapsible(true)
       .build(|| {
           input_string(ui, im_str!("Configuration File"), config_file_name, imgui_str);
 
@@ -472,7 +535,8 @@ fn configuration_ui(ui: &Ui, config: &mut AppConfig, config_file_name: &mut Stri
 }
 
 fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut i32) {
-    ui.child_frame(im_str!("CcsdsSettingsFrame"), (WINDOW_WIDTH - 15.0, 180.0))
+    ui.child_frame(im_str!("CcsdsSettingsFrame"), (WINDOW_WIDTH - 15.0, CCSDS_SETTINGS_FRAME_HEIGHT))
+      .collapsible(true)
       .show_borders(true)
       .build(|| {
           ui.columns(2, im_str!("CcsdsSettingsCol"), false);
@@ -493,6 +557,9 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
 
           // Endianness settings
           ui.checkbox(im_str!("Little Endian CCSDS Primary Header"), &mut config.little_endian_ccsds);
+          if ui.is_item_hovered() {
+              ui.tooltip_text(im_str!("Decode CCSDS Primary Header as Little Endian"));
+          }
           ui.next_column();
           ui.separator();
 
@@ -523,6 +590,7 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
           }
           ui.next_column();
 
+          ui.columns(1, im_str!("Maximum Packet Size Section"), false);
           ui.input_int(im_str!("Maximum Packet Size (Bytes)"), &mut config.max_length_bytes).build();
           if ui.is_item_hovered() {
               ui.tooltip_text(im_str!("Maximum packet size, ignoring frame header/footer, that will be forwarded to output"));
@@ -622,9 +690,10 @@ fn packet_summary_ui(ui: &Ui, packet_stats: &PacketStats) {
     }
 }
 
-fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats) {
-    ui.child_frame(im_str!("Apid Statistics"), (WINDOW_WIDTH - 15.0, 320.0))
+fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, dims: ImVec2) {
+    ui.child_frame(im_str!("Apid Statistics"), dims)
         .show_borders(true)
+        .collapsible(true)
         .show_scrollbar(true)
         .always_show_vertical_scroll_bar(true)
         .build(|| {
@@ -722,6 +791,9 @@ fn timestamp_def_ui(ui: &Ui, timestamp_def: &mut TimestampDef) {
 
     ui.next_column();
     ui.checkbox(im_str!("Little Endian"), &mut timestamp_def.is_little_endian);
+    if ui.is_item_hovered() {
+        ui.tooltip_text(im_str!("Decode timestamp as Little Endian (default is Big Endian)"));
+    }
 }
 
 fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImString) {
@@ -732,7 +804,7 @@ fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImS
     string.push_str(&imgui_str.to_str());
 }
 
-fn stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamSettings, imgui_str: &mut ImString) {
+fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamSettings, imgui_str: &mut ImString) {
     let mut input_selection: i32 = *selection as i32;
 
     ui.columns(4, im_str!("SelectInputType"), false);
@@ -775,6 +847,55 @@ fn stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamS
             input_string(&ui, im_str!("IP"), &mut input_settings.tcp_server.ip, imgui_str);
             ui.next_column();
             input_port(&ui, im_str!("Port"), &mut input_settings.tcp_server.port);
+        },
+    }
+}
+
+fn output_stream_ui(ui: &Ui, selection: &mut StreamOption, output_settings: &mut StreamSettings, imgui_str: &mut ImString) {
+    let mut input_selection: i32 = *selection as i32;
+
+    ui.columns(5, im_str!("SelectOutput"), false);
+
+    ui.radio_button(im_str!("File"),       &mut input_selection, StreamOption::File as i32);
+    ui.next_column();
+    ui.radio_button(im_str!("UDP"),        &mut input_selection, StreamOption::Udp as i32);
+    ui.next_column();
+    ui.radio_button(im_str!("TCP Client"), &mut input_selection, StreamOption::TcpClient as i32);
+    ui.next_column();
+    ui.radio_button(im_str!("TCP Server"), &mut input_selection, StreamOption::TcpServer as i32);
+
+    *selection = num::FromPrimitive::from_i32(input_selection).unwrap();
+
+
+    ui.columns(1, im_str!("default"), false);
+    match selection {
+        StreamOption::File => {
+            ui.text(im_str!("Select Input File Parameters:"));
+            input_string(&ui, im_str!("File Name"), &mut output_settings.file.file_name, imgui_str);
+        },
+
+        StreamOption::Udp => {
+            ui.text(im_str!("Select Udp Socket Parameters:"));
+            ui.columns(2, im_str!("UdpSocketCols"), false);
+            input_string(&ui, im_str!("IP"), &mut output_settings.udp.ip, imgui_str);
+            ui.next_column();
+            input_port(&ui, &mut im_str!("Port"), &mut output_settings.udp.port);
+        },
+
+        StreamOption::TcpClient => {
+            ui.text(im_str!("Select Tcp Client Parameters:"));
+            ui.columns(2, im_str!("UdpSocketCols"), false);
+            input_string(&ui, im_str!("IP"), &mut output_settings.tcp_client.ip, imgui_str);
+            ui.next_column();
+            input_port(&ui, im_str!("Port"), &mut output_settings.tcp_client.port);
+        },
+
+        StreamOption::TcpServer => {
+            ui.text(im_str!("Select Tcp Server Socket Parameters:"));
+            ui.columns(2, im_str!("UdpSocketCols"), false);
+            input_string(&ui, im_str!("IP"), &mut output_settings.tcp_server.ip, imgui_str);
+            ui.next_column();
+            input_port(&ui, im_str!("Port"), &mut output_settings.tcp_server.port);
         },
     }
 }
