@@ -328,6 +328,10 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 ui.text("Configuration");
                 ui.same_line(0.0);
                 ui.with_id("ToggleConfigSettings", || {
+                    // align the word 'Toggle' with other settings
+                    ui.text("  ");
+                    ui.same_line(0.0);
+                    // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
                         config_settings_shown = !config_settings_shown;
                     }
@@ -341,6 +345,10 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 ui.text("Input Settings");
                 ui.same_line(0.0);
                 ui.with_id("ToggleInputSettings", || {
+                    // align the word 'Toggle' with other settings
+                    ui.text(" ");
+                    ui.same_line(0.0);
+                    // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
                         input_settings_shown = !input_settings_shown;
                     }
@@ -357,6 +365,10 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 ui.text("Output Settings");
                 ui.same_line(0.0);
                 ui.with_id("ToggleOutputSettings", || {
+                    // align the word 'Toggle' with other settings
+                    ui.text("");
+                    ui.same_line(0.0);
+                    // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
                         output_settings_shown = !output_settings_shown;
                     }
@@ -377,6 +389,10 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 ui.text("CCSDS Settings");
                 ui.same_line(0.0);
                 ui.with_id("ToggleCcsdsSettings", || {
+                    // align the word 'Toggle' with other settings
+                    ui.text(" ");
+                    ui.same_line(0.0);
+                    // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
                         ccsds_settings_shown = !ccsds_settings_shown;
                     }
@@ -390,15 +406,19 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 let mut dims = ImVec2::new(WINDOW_WIDTH - 15.0, STATS_FRAME_HEIGHT);
                 if !config_settings_shown {
                     dims.y += CONFIG_SETTINGS_FRAME_HEIGHT;
+                    dims.y += 2.0;
                 }
                 if !input_settings_shown {
                     dims.y += INPUT_SETTINGS_FRAME_HEIGHT;
+                    dims.y += 2.0;
                 }
                 if !output_settings_shown {
                     dims.y += OUTPUT_SETTINGS_FRAME_HEIGHT;
+                    dims.y += 2.0;
                 }
                 if !ccsds_settings_shown {
                     dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
+                    dims.y += 2.0;
                 }
                 packet_statistics_ui(&ui, &processing_stats, dims);
 
@@ -406,6 +426,24 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 if ui.small_button(im_str!("Clear Stats")) {
                     info!("Clearing Statistics");
                     processing_stats = Default::default();
+                }
+
+                ui.same_line(0.0);
+
+                if input_settings_shown && output_settings_shown && ccsds_settings_shown && config_settings_shown {
+                    if ui.small_button(im_str!("Collapse All")) {
+                      input_settings_shown  = false;
+                      output_settings_shown = false;
+                      ccsds_settings_shown  = false;
+                      config_settings_shown = false;
+                    }
+                } else {
+                    if ui.small_button(im_str!(" Expand All ")) {
+                      input_settings_shown  = true;
+                      output_settings_shown = true;
+                      ccsds_settings_shown  = true;
+                      config_settings_shown = true;
+                    }
                 }
 
                 // if we are paused, ask to continue or cancel
