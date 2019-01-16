@@ -109,6 +109,9 @@ use processing::*;
 mod style;
 use style::*;
 
+mod ccsds_utils;
+use ccsds_utils::*;
+
 
 /// Window width given to SDL
 const WINDOW_WIDTH:  f32 = 840.0;
@@ -341,7 +344,6 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 }
 
                 /* Source Selection */
-
                 ui.text("Input Settings");
                 ui.same_line(0.0);
                 ui.with_id("ToggleInputSettings", || {
@@ -528,9 +530,14 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     match sender.send(ProcessingMsg::Terminate) {
         Ok(_) => {
             // NOTE awkward
-            // Wait to receive terminate message from processing thread
-            // should be looking for errors to log.
-            while let Ok(_) = receiver.recv_timeout(Duration::from_millis(500)) {
+            while let Ok(msg) = receiver.recv_timeout(Duration::from_millis(500)) {
+                match msg {
+                    GuiMessage::Error(error_msg) => {
+                        error!("{}", error_msg);
+                    },
+
+                    _ => {}, // ignore other errors
+                }
             }
         }
 

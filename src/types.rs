@@ -31,6 +31,7 @@ impl Default for GuiTheme {
 pub struct AppConfig {
     /// Settings for input stream
     pub input_settings:  StreamSettings,
+
     /// Selection of which type of stream to use for input
     pub input_selection:  StreamOption,
 
@@ -44,6 +45,7 @@ pub struct AppConfig {
 
     /// The packet size for processing- either CCSDS or fixed size
     pub packet_size: PacketSize,
+
     /// Is the CCSDS header little endian. This is a violation of the standard,
     /// but may be encountered in some systems.
     pub little_endian_ccsds: bool,
@@ -57,6 +59,7 @@ pub struct AppConfig {
 
     /// The timestamp settings describe how to throttle/delay/replay packets.
     pub timestamp_setting: TimestampSetting,
+
     /// The timestamp definition describes the location and format of the packet's timestamp.
     /// This must be in the form of a seconds and subseconds field each of 1/2/4 bytes and with
     /// aubseconds of a given resolution.

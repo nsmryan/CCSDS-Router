@@ -2,33 +2,10 @@
   "input_settings": {
     "file": {
       "file_name": "Logged_Data"
-    },
-    "tcp_client": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
-    "tcp_server": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
-    "udp": {
-      "port": 8001,
-      "ip": "127.0.0.1"
     }
   },
   "input_selection": "File",
   "output_settings": {
-    "file": {
-      "file_name": "data.bin"
-    },
-    "tcp_client": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
-    "tcp_server": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
     "udp": {
       "port": 8001,
       "ip": "127.0.0.1"
