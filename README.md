@@ -16,7 +16,6 @@ file, the packets can be send quite quickly.
 must be in the form of a seconds field followed by a subseconds field, with configurable sizes in whole bytes,
 and with configurable subsecond resolution. The timestamps will then be used to delay between packets, attempting
 to produce the packets according the timestamps.
-
 The use case for this feature is to replay stored data at approximately the timing that it was produced, such as 
 for testing a system against stored data.
 
