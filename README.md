@@ -5,8 +5,6 @@ CCSDS packets coming in from the network, replaying stored data for testing, and
 throttling CCSDS traffic.
 
 
-## Inputs
-The 
 
 ## Timing
 There are four options for how to forward packets from the input to the output.
