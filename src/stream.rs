@@ -137,6 +137,22 @@ pub struct Packet {
     pub bytes:  Vec<u8>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub struct CcsdsParser {
+    bytes: Vec<u8>,
+    allowed_apids: Option<Vec<u16>>,
+    max_packet_length: Option<u32>,
+}
+
+impl CcsdsParser {
+    fn recv_bytes(&mut self, new_bytes: Vec<u8>) {
+        self.bytes.extend(new_bytes);
+    }
+
+    fn pull_packet(&mut self, bytes: &mut) {
+    }
+}
+
 
 pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Result<ReadStream, String> {
     let result;
