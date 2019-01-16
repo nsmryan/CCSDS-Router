@@ -213,6 +213,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                         _ => {},
                     }
+                    let recv_time = SystemTime::now();
 
                     // determine delay to use from time settings
                     match timestamp_setting {
@@ -321,6 +322,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         let mut packet_update = PacketUpdate { apid: packet.header.control.apid(),
                                                                packet_length: packet.bytes.len() as u16,
                                                                seq_count: packet.header.sequence.sequence_count(),
+                                                               recv_time: recv_time,
                                                                bytes: Vec::new(),
                                                              };
 

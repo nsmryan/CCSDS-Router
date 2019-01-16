@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::default::Default;
 use std::collections::HashMap;
 
@@ -77,9 +77,13 @@ pub struct FrameSettings {
 /* Packet Data */
 /// The full set of packet history used when displaying
 /// a summary of what packets have been received.
-pub type PacketHistory = HashMap<Apid, PacketStats>;
+#[derive(Default, PartialEq, Debug, Clone)]
+pub struct ProcessingStats {
+    pub packet_history: HashMap<Apid, PacketStats>,
+    pub packets_per_second: usize,
+}
 
-#[derive(Default, PartialEq, Clone, Eq, Debug)]
+#[derive(PartialEq, Clone, Eq, Debug)]
 /// A PacketStats is a set of statistics about a particular
 /// APID.
 pub struct PacketStats {
@@ -98,7 +102,25 @@ pub struct PacketStats {
     /// The last packet length read for this APID
     pub last_len: u16,
 
+    /// The system time at which the packet was received
+    pub recv_time: SystemTime,
+
+    /// The packet itself
     pub bytes: Vec<u8>,
+}
+
+impl Default for PacketStats {
+    fn default() -> Self {
+        PacketStats {
+            apid: 0,
+            packet_count: 0,
+            byte_count: 0,
+            last_seq: 0,
+            last_len: 0,
+            recv_time: SystemTime::now(),
+            bytes: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +136,10 @@ pub struct PacketUpdate {
     /// The sequence count of the packet
     pub seq_count: u16,
 
+    /// The system time at which the packet was received
+    pub recv_time: SystemTime,
+
+    /// The packet itself
     pub bytes: Vec<u8>,
 }
 
@@ -124,6 +150,7 @@ impl PacketStats {
         self.byte_count += packet_update.packet_length as u32;
         self.last_seq = packet_update.seq_count;
         self.last_len = packet_update.packet_length;
+        self.recv_time = packet_update.recv_time;
         self.bytes.clear();
         self.bytes.extend(packet_update.bytes);
     }
