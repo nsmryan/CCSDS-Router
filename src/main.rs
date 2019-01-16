@@ -245,7 +245,9 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     let mut output_settings_shown = true;
     let mut ccsds_settings_shown = true;
     let mut config_settings_shown = true;
- 
+
+    let mut packets_dropped = 0;
+
     // index of selection for how to treat timestamps
     let mut timestamp_selection: i32 = 1;
 
@@ -294,6 +296,10 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     packet_stats.update(packet_update);
                     //packet_recv_diffs.push_back(packet_update.recv_time);
                     packet_recv_diffs.push_back(packet_stats.recv_time);
+                },
+
+                GuiMessage::PacketDropped(header) => {
+                    packets_dropped += 1;
                 },
 
                 GuiMessage::Finished => {
@@ -419,7 +425,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
                     dims.y += 2.0;
                 }
-                packet_statistics_ui(&ui, &processing_stats, dims);
+                packet_statistics_ui(&ui, &processing_stats, packets_dropped, dims);
 
                 /* Control Buttons */
                 if ui.small_button(im_str!("Clear Stats")) {
@@ -732,7 +738,7 @@ fn packet_summary_ui(ui: &Ui, packet_stats: &PacketStats) {
     }
 }
 
-fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, dims: ImVec2) {
+fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dropped: usize, dims: ImVec2) {
     ui.child_frame(im_str!("Apid Statistics"), dims)
         .show_borders(true)
         .collapsible(true)
@@ -743,7 +749,10 @@ fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, dims: ImVec
             ui.text(format!("Apids Seen: {:3} ", count));
 
             ui.same_line(0.0);
-            ui.text(format!("Packets Per Second: {}", processing_stats.packets_per_second));
+            ui.text(format!("Packets Dropped: {:4>}", packets_dropped));
+
+            ui.same_line(0.0);
+            ui.text(format!("Packets Per Second: {:4>}", processing_stats.packets_per_second));
 
             ui.separator();
 

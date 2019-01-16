@@ -2,6 +2,8 @@ use std::time::{Duration, SystemTime};
 use std::default::Default;
 use std::collections::HashMap;
 
+use ccsds_primary_header::*;
+
 
 use stream::*;
 
@@ -268,6 +270,7 @@ impl Default for TimestampSetting {
 #[derive(Debug, PartialEq, Eq)]
 pub enum GuiMessage {
     PacketUpdate(PacketUpdate),
+    PacketDropped(CcsdsPrimaryHeader),
     Finished,
     Terminate,
     Error(String),

@@ -340,6 +340,9 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                             last_send_time = SystemTime::now();
 
                             sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
+                        } else {
+                            // indicate a dropped packet
+                            sender.send(GuiMessage::PacketDropped(packet.header)).unwrap();
                         }
                     } else {
                         sender.send(GuiMessage::Error(format!("Unexpected message length {} for APID {}. Packet Dropped",
