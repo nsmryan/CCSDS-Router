@@ -111,9 +111,6 @@ use processing::*;
 mod style;
 use style::*;
 
-mod ccsds_utils;
-use ccsds_utils::*;
-
 
 /// Window width given to SDL
 const WINDOW_WIDTH:  f32 = 840.0;
