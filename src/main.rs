@@ -292,7 +292,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
     // NOTE this could be a state machine instead of bools
     let mut paused = false;
-    let mut processing = false;
+    let mut processing = config.auto_start;
 
     let mut input_settings_shown = true;
     let mut output_settings_shown = true;
@@ -305,7 +305,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     let mut timestamp_selection: i32 = 1;
 
     let mut packet_recv_diffs: VecDeque<SystemTime> = VecDeque::new();
-    let mut packet_recv_bytes: VecDeque<usize> = VecDeque::new();
+    let mut packet_recv_bytes: usize = 0;
 
     match config.theme {
         GuiTheme::Dark => {
@@ -350,7 +350,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     let packet_length = packet_update.packet_length as usize;
                     packet_stats.update(packet_update);
                     packet_recv_diffs.push_back(packet_stats.recv_time);
-                    packet_recv_bytes.push_back(packet_length);
+                    packet_recv_bytes += packet_length;
                 },
 
                 GuiMessage::PacketDropped(header) => {
@@ -370,9 +370,9 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
         if packet_recv_diffs.len() > 0  &&
               SystemTime::now().duration_since(*packet_recv_diffs.get(0).unwrap()).unwrap() > Duration::from_secs(1) {
             processing_stats.packets_per_second = packet_recv_diffs.len();
-            processing_stats.bytes_per_second = packet_recv_bytes.iter().sum();
+            processing_stats.bytes_per_second = packet_recv_bytes;
             packet_recv_diffs.clear();
-            packet_recv_bytes.clear();
+            packet_recv_bytes = 0;
         }
 
         /* IMGUI UI */

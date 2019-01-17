@@ -46,7 +46,7 @@
     "keep_postfix": false
   },
   "max_length_bytes": 4096,
-  "timestamp_setting": "Replay",
+  "timestamp_setting": "Asap",
   "timestamp_def": {
     "offset": 0,
     "num_bytes_seconds": "FourBytes",
