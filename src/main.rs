@@ -111,6 +111,9 @@ use processing::*;
 mod style;
 use style::*;
 
+mod ccsds_utils;
+use ccsds_utils::*;
+
 
 /// Window width given to SDL
 const WINDOW_WIDTH:  f32 = 840.0;
@@ -652,7 +655,7 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
               ui.same_line(0.0);
               let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
               ui.input_int(im_str!("Packet Size (bytes)"), &mut packet_size).build();
-              config.packet_size = PacketSize::Fixed(packet_size as u16);
+              config.packet_size = PacketSize::Fixed(packet_size as u32);
           }
           else {
               config.packet_size = PacketSize::Variable;
@@ -801,6 +804,7 @@ fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dro
         .collapsible(true)
         .show_scrollbar(true)
         .always_show_vertical_scroll_bar(true)
+        .movable(true)
         .build(|| {
             let count = processing_stats.packet_history.len() as i32;
             ui.text(format!("Apids Seen: {:3} ", count));

@@ -328,7 +328,7 @@ pub enum PacketSize {
     /// The packet length is variable and depends on the CCSDS header
     Variable,
     /// The packet length is fixed
-    Fixed(u16),
+    Fixed(u32),
 }
 
 impl Default for PacketSize {
@@ -338,7 +338,7 @@ impl Default for PacketSize {
 }
 
 impl PacketSize {
-    pub fn num_bytes(&self) -> u16 {
+    pub fn num_bytes(&self) -> u32 {
         match self {
             PacketSize::Variable => 100,
 
