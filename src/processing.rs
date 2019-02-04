@@ -1,5 +1,5 @@
 use std::default::Default;
-use std::sync::mpsc::{Sender, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Sender, Receiver, RecvTimeoutError, sync_channel};
 use std::time::{SystemTime, Duration};
 use std::io::Cursor;
 
@@ -10,6 +10,55 @@ use ccsds_primary_header::*;
 use types::*;
 use stream::*;
 
+
+enum PacketMsg {
+    StreamOpenError,
+    ReadError(String),
+    Packet(Packet, SystemTime),
+    PacketDropped(CcsdsPrimaryHeader),
+}
+
+// TODO there are a lot of settings here. maybe this is better off in the processing
+// thread, or maybe its a good place to simplify things by creating an interface.
+fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
+                       read_stream_settings: StreamSettings,
+                       input_selection: StreamOption,
+                       frame_settings: FrameSettings,
+                       endianness: Endianness,
+                       packet_size: PacketSize) {
+    match open_input_stream(&read_stream_settings, input_selection) {
+        Ok(in_stream) => {
+            loop {
+                let mut packet: Packet
+                    = Packet { header: Default::default(),
+                               bytes: Vec::with_capacity(4096),
+                };
+
+                // NOTE need to handle timing out for network reads and still responding to
+                // control messages.
+                // NOTE need to handle reading from files that may grow, and ones that will not
+                // NOTE have a way to signal nominal end of stream for files, and report back
+                // differently
+                match stream_read_packet(&mut in_stream, &mut packet, endianness, packet_size, &frame_settings) {
+                    Err(e) => {
+                        packet_sender.send(PacketMsg::ReadError(e));
+                        break;
+                    },
+
+                    _ => {
+                        let recv_time = SystemTime::now();
+
+                        packet_sender.send(PacketMsg::PacketRead( packet, recv_time ));
+                    },
+                }
+            }
+        },
+
+        Err(e) => {
+            packet_sender.send(PacketMsg::StreamOpenError);
+        }
+    }
+}
 
 fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
     let timestamp: Duration;
@@ -92,7 +141,6 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
     let mut packet_size: PacketSize = Default::default();
     let mut frame_settings: FrameSettings = Default::default();
 
-    let mut in_stream  = ReadStream::Null;
     let mut out_stream = WriteStream::Null;
 
     let mut endianness: Endianness = Endianness::Little;
@@ -107,10 +155,13 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
     let mut system_to_packet_time: Option<SystemTime> = None;
 
+    let mut packet_sender: SyncSender<Packet>;
+    let mut packet_receiver: SyncSender<Packet>;
+    let mut input_thread;
+
     'state_loop: loop {
         match state {
             ProcessingState::Idle => {
-                in_stream  = ReadStream::Null;
                 out_stream = WriteStream::Null;
 
                 let msg_result = receiver.recv().ok();
@@ -133,21 +184,18 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         }
 
                         // open streams
-                        match open_input_stream(&config.input_settings, config.input_selection) {
+                        match open_output_stream(&config.output_settings, config.output_selection) {
                           Ok(stream) => {
-                              in_stream  = stream;
+                              out_stream = stream;
 
-                              match open_output_stream(&config.output_settings, config.output_selection) {
-                                Ok(stream) => {
-                                    out_stream = stream;
-                                    state = ProcessingState::Processing;
-                                },
+                              // spawn off a thread for reading the input stream
+                              // TODO make this a config option for depth
+                              (packet_sender, packet_receiver) = sync_channel(100);
+                              input_stream_thread = thread::spawn(move || {
+                                  input_stream_thread(packet_sender);
+                              });
 
-                                Err(err_string) => {
-                                    sender.send(GuiMessage::Error(err_string)).unwrap();
-                                    sender.send(GuiMessage::Finished).unwrap();
-                                },
-                              }
+                              state = ProcessingState::Processing;
                           },
 
                           Err(err_string) => {
@@ -206,126 +254,108 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                 while state == ProcessingState::Processing {
                     /* Process a Packet */
-                    // NOTE need to handle timing out for network reads and still responding to
-                    // control messages.
-                    // NOTE need to handle reading from files that may grow, and ones that will not
-                    match stream_read_packet(&mut in_stream, &mut packet, endianness, packet_size, &frame_settings) {
-                        Err(e) => {
-                            sender.send(GuiMessage::Error(e)).unwrap();
-                            state = ProcessingState::Idle;
-                            break;
-                        },
+                    let packet_msg = packet_receiver.recv_timeout(0);
 
-                        _ => {},
-                    }
-                    let recv_time = SystemTime::now();
 
-                    // determine delay to use from time settings
-                    match timestamp_setting {
-                        TimestampSetting::Asap => {
-                            timeout = Duration::from_secs(0);
-                        }
-
-                        TimestampSetting::Replay => {
-                           let timestamp = decode_timestamp(&packet.bytes, &timestamp_def);
-
-                            match system_to_packet_time {
-                                None => {
-                                    system_to_packet_time = Some(SystemTime::now() - timestamp);
+                    match packet_msg {
+                        PacketMsg::Packet(packet, recv_time) => {
+                            // determine delay to use from time settings
+                            match timestamp_setting {
+                                TimestampSetting::Asap => {
                                     timeout = Duration::from_secs(0);
+                                }
+
+                                TimestampSetting::Replay => {
+                                   let timestamp = decode_timestamp(&packet.bytes, &timestamp_def);
+
+                                    match system_to_packet_time {
+                                        None => {
+                                            system_to_packet_time = Some(SystemTime::now() - timestamp);
+                                            timeout = Duration::from_secs(0);
+                                        },
+
+                                        Some(time_offset) =>
+                                        {
+                                            let timestamp_sys_time = time_offset + timestamp;
+
+                                            match timestamp_sys_time.duration_since(SystemTime::now()) {
+                                                Ok(remaining_time) => timeout = remaining_time,
+
+                                                _ => timeout = Duration::from_secs(0),
+                                            }
+                                        },
+                                    }
                                 },
 
-                                Some(time_offset) =>
-                                {
-                                    let timestamp_sys_time = time_offset + timestamp;
+                                TimestampSetting::Delay(duration) => {
+                                    // NOTE this puts a delay between each packet, rather then delaying
+                                    // a stream of packets. the second design is more correct, but
+                                    // would require a separate streaming thread to collect packets for
+                                    // us to read out in the processing thread.
+                                    timeout = duration;
+                                },
 
-                                    match timestamp_sys_time.duration_since(SystemTime::now()) {
-                                        Ok(remaining_time) => timeout = remaining_time,
+                                TimestampSetting::Throttle(duration) => {
+                                    // NOTE we unwrap here assuming that system time does not go backwards.
+                                    // this assumption is not always true, and we should handle this more
+                                    // gracefully.
+                                    match duration.checked_sub(last_send_time.elapsed().unwrap()) {
+                                        Some(remaining_time) => timeout = remaining_time,
 
-                                        _ => timeout = Duration::from_secs(0),
+                                        None => timeout = Duration::from_millis(0),
                                     }
                                 },
                             }
-                        },
 
-                        TimestampSetting::Delay(duration) => {
-                            // NOTE this puts a delay between each packet, rather then delaying
-                            // a stream of packets. the second design is more correct, but
-                            // would require a separate streaming thread to collect packets for
-                            // us to read out in the processing thread.
-                            timeout = duration;
-                        },
+                            /* Check for Control Messages */
+                            let time_to_send = SystemTime::now() + timeout;
 
-                        TimestampSetting::Throttle(duration) => {
-                            // NOTE we unwrap here assuming that system time does not go backwards.
-                            // this assumption is not always true, and we should handle this more
-                            // gracefully.
-                            match duration.checked_sub(last_send_time.elapsed().unwrap()) {
-                                Some(remaining_time) => timeout = remaining_time,
+                            // process at least one message. continue to process messages until we have
+                            // reached the timeout period for processing this packet.
+                            let mut processed_at_least_once = false;
+                            let mut remaining_timeout = timeout;
+                            while !processed_at_least_once || SystemTime::now() < time_to_send {
+                                match receiver.recv_timeout(remaining_timeout) {
+                                    Err(RecvTimeoutError::Timeout) => {
+                                        // timing out means that we are ready to process the next packet,
+                                        // so this is not an error condition
+                                    },
 
-                                None => timeout = Duration::from_millis(0),
+                                    Ok(ProcessingMsg::Pause) => {
+                                        // we will pause after processing this packet
+                                        state = ProcessingState::Paused;
+                                    },
+
+                                    Ok(ProcessingMsg::Cancel) => {
+                                        state = ProcessingState::Idle;
+                                        continue 'state_loop;
+                                    },
+
+                                    Ok(ProcessingMsg::Terminate) => {
+                                        state = ProcessingState::Terminating;
+                                        continue 'state_loop;
+                                    },
+
+                                    Ok(msg) => {
+                                        sender.send(GuiMessage::Error(format!("Unexpected message while processing {}", msg.name()))).unwrap();
+                                    },
+
+                                    Err(RecvTimeoutError::Disconnected) => {
+                                        // the result is not checked here because we are going to terminate whether
+                                        // or not it is received.
+                                        let _ = sender.send(GuiMessage::Error("Message queue error while processing".to_string()));
+                                        state = ProcessingState::Terminating;
+                                        continue 'state_loop;
+                                    },
+                                }
+
+                                processed_at_least_once = true;
+
+                                // the remaining timeout is the duration from now to the send time. if the
+                                // send time is in the past, use a duration of 0.
+                                remaining_timeout = SystemTime::now().duration_since(time_to_send).unwrap_or(Duration::from_secs(0));
                             }
-                        },
-                    }
 
-                    /* Check for Control Messages */
-                    let time_to_send = SystemTime::now() + timeout;
-
-                    // process at least one message. continue to process messages until we have
-                    // reached the timeout period for processing this packet.
-                    let mut processed_at_least_once = false;
-                    let mut remaining_timeout = timeout;
-                    while !processed_at_least_once || SystemTime::now() < time_to_send {
-                        match receiver.recv_timeout(remaining_timeout) {
-                            Err(RecvTimeoutError::Timeout) => {
-                                // timing out means that we are ready to process the next packet,
-                                // so this is not an error condition
-                            },
-
-                            Ok(ProcessingMsg::Pause) => {
-                                // we will pause after processing this packet
-                                state = ProcessingState::Paused;
-                            },
-
-                            Ok(ProcessingMsg::Cancel) => {
-                                state = ProcessingState::Idle;
-                                continue 'state_loop;
-                            },
-
-                            Ok(ProcessingMsg::Terminate) => {
-                                state = ProcessingState::Terminating;
-                                continue 'state_loop;
-                            },
-
-                            Ok(msg) => {
-                                sender.send(GuiMessage::Error(format!("Unexpected message while processing {}", msg.name()))).unwrap();
-                            },
-
-                            Err(RecvTimeoutError::Disconnected) => {
-                                // the result is not checked here because we are going to terminate whether
-                                // or not it is received.
-                                let _ = sender.send(GuiMessage::Error("Message queue error while processing".to_string()));
-                                state = ProcessingState::Terminating;
-                                continue 'state_loop;
-                            },
-                        }
-
-                        processed_at_least_once = true;
-
-                        // the remaining timeout is the duration from now to the send time. if the
-                        // send time is in the past, use a duration of 0.
-                        remaining_timeout = SystemTime::now().duration_since(time_to_send).unwrap_or(Duration::from_secs(0));
-                    }
-
-                    // check that the packet is within the allowed length. note that this is based
-                    // on the CCSDS packet length, ignoring pre or postfix bytes in the frame.
-                    if packet.header.packet_length() as usize <= max_length_bytes {
-                        let apid_is_allowed;
-                        match &allowed_apids {
-                            None => apid_is_allowed = true,
-                            Some(apid_list) => apid_is_allowed = apid_list.contains(&packet.header.control.apid()),
-                        }
-                        if apid_is_allowed {
                             stream_send(&mut out_stream, &packet.bytes);
 
                             /* Report packet to GUI */
@@ -341,14 +371,15 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                             last_send_time = SystemTime::now();
 
                             sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
-                        } else {
-                            // indicate a dropped packet
-                            sender.send(GuiMessage::PacketDropped(packet.header)).unwrap();
                         }
-                    } else {
-                        sender.send(GuiMessage::Error(format!("Unexpected message length {} for APID {}. Packet Dropped",
-                                                              packet.bytes.len(),
-                                                              packet.header.control.apid()))).unwrap();
+
+                        PacketMsg::PacketDropped(header) => {
+                                sender.send(GuiMessage::PacketDropped(header)).unwrap();
+                        } 
+
+                        PacketMsg::ReadError(e) => {
+                                sender.send(GuiMessage::Error(e)).unwrap();
+                        } 
                     }
                 }
 
