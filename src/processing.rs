@@ -1,7 +1,8 @@
 use std::default::Default;
-use std::sync::mpsc::{Sender, Receiver, RecvTimeoutError, sync_channel};
+use std::sync::mpsc::{SyncSender, Sender, Receiver, RecvTimeoutError, sync_channel};
 use std::time::{SystemTime, Duration};
 use std::io::Cursor;
+use std::thread;
 
 use bytes::{Buf};
 
@@ -16,6 +17,7 @@ enum PacketMsg {
     ReadError(String),
     Packet(Packet, SystemTime),
     PacketDropped(CcsdsPrimaryHeader),
+    StreamEnd,
 }
 
 // TODO there are a lot of settings here. maybe this is better off in the processing
@@ -27,7 +29,7 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                        endianness: Endianness,
                        packet_size: PacketSize) {
     match open_input_stream(&read_stream_settings, input_selection) {
-        Ok(in_stream) => {
+        Ok(ref mut in_stream) => {
             loop {
                 let mut packet: Packet
                     = Packet { header: Default::default(),
@@ -39,25 +41,26 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                 // NOTE need to handle reading from files that may grow, and ones that will not
                 // NOTE have a way to signal nominal end of stream for files, and report back
                 // differently
-                match stream_read_packet(&mut in_stream, &mut packet, endianness, packet_size, &frame_settings) {
+                match stream_read_packet(in_stream, &mut packet, endianness, packet_size, &frame_settings) {
                     Err(e) => {
-                        packet_sender.send(PacketMsg::ReadError(e));
+                        packet_sender.send(PacketMsg::ReadError(e)).unwrap();
                         break;
                     },
 
                     _ => {
                         let recv_time = SystemTime::now();
 
-                        packet_sender.send(PacketMsg::PacketRead( packet, recv_time ));
+                        packet_sender.send(PacketMsg::Packet( packet, recv_time )).unwrap();
                     },
                 }
             }
         },
 
         Err(e) => {
-            packet_sender.send(PacketMsg::StreamOpenError);
+            packet_sender.send(PacketMsg::StreamOpenError).unwrap();
         }
     }
+    packet_sender.send(PacketMsg::StreamEnd).unwrap();
 }
 
 fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
@@ -132,32 +135,24 @@ fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
 pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
     let mut state: ProcessingState = ProcessingState::Idle;
   
-    let mut packet: Packet
+    let packet: Packet
         = Packet { header: Default::default(),
                    bytes: Vec::with_capacity(4096),
     };
-
-    let mut max_length_bytes: usize = 0;
-    let mut packet_size: PacketSize = Default::default();
-    let mut frame_settings: FrameSettings = Default::default();
 
     let mut out_stream = WriteStream::Null;
 
     let mut endianness: Endianness = Endianness::Little;
 
-    let mut timestamp_setting: TimestampSetting = Default::default();
-    let mut timestamp_def: TimestampDef = Default::default();
-
     let mut timeout: Duration;
     let mut last_send_time: SystemTime = SystemTime::now();
 
-    let mut allowed_apids = None;
-
     let mut system_to_packet_time: Option<SystemTime> = None;
 
-    let mut packet_sender: SyncSender<Packet>;
-    let mut packet_receiver: SyncSender<Packet>;
-    let mut input_thread;
+    let (mut packet_sender, mut packet_receiver) = sync_channel(100);
+
+    let mut app_config: AppConfig = Default::default();
+
 
     'state_loop: loop {
         match state {
@@ -168,15 +163,10 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                 match msg_result {
                     // Start processing from a given set of configuration settings
                     Some(ProcessingMsg::Start(config)) => {
-                        max_length_bytes = config.max_length_bytes as usize;
-                        packet_size = config.packet_size;
-                        frame_settings = config.frame_settings;
-                        timestamp_setting = config.timestamp_setting;
-                        timestamp_def = config.timestamp_def;
-                        allowed_apids = config.allowed_apids.clone();
+                        app_config = config;
 
                         // get endianness to use
-                        if config.little_endian_ccsds {
+                        if app_config.little_endian_ccsds {
                             endianness = Endianness::Little;
                         }
                         else {
@@ -184,15 +174,27 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         }
 
                         // open streams
-                        match open_output_stream(&config.output_settings, config.output_selection) {
+                        match open_output_stream(&app_config.output_settings, app_config.output_selection) {
                           Ok(stream) => {
                               out_stream = stream;
 
                               // spawn off a thread for reading the input stream
                               // TODO make this a config option for depth
-                              (packet_sender, packet_receiver) = sync_channel(100);
-                              input_stream_thread = thread::spawn(move || {
-                                  input_stream_thread(packet_sender);
+                              let channels = sync_channel(100);
+                              packet_sender = channels.0;
+                              packet_receiver = channels.1;
+
+                              let frame_settings = app_config.frame_settings.clone();
+                              let input_settings = app_config.input_settings;
+                              let input_selection = app_config.input_selection;
+                              let packet_size = app_config.packet_size;
+                              let input_stream_thread = thread::spawn(move || {
+                                  input_stream_thread(packet_sender,
+                                                      input_settings,
+                                                      input_selection,
+                                                      frame_settings,
+                                                      endianness,
+                                                      packet_size);
                               });
 
                               state = ProcessingState::Processing;
@@ -254,19 +256,20 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                 while state == ProcessingState::Processing {
                     /* Process a Packet */
-                    let packet_msg = packet_receiver.recv_timeout(0);
+                    //let packet_msg = packet_receiver.recv_timeout(Duration::from_secs(0));
+                    let packet_msg = packet_receiver.recv();
 
 
                     match packet_msg {
-                        PacketMsg::Packet(packet, recv_time) => {
+                        Ok(PacketMsg::Packet(packet, recv_time)) => {
                             // determine delay to use from time settings
-                            match timestamp_setting {
+                            match app_config.timestamp_setting {
                                 TimestampSetting::Asap => {
                                     timeout = Duration::from_secs(0);
                                 }
 
                                 TimestampSetting::Replay => {
-                                   let timestamp = decode_timestamp(&packet.bytes, &timestamp_def);
+                                   let timestamp = decode_timestamp(&packet.bytes, &app_config.timestamp_def);
 
                                     match system_to_packet_time {
                                         None => {
@@ -373,13 +376,25 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                             sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
                         }
 
-                        PacketMsg::PacketDropped(header) => {
+                        Ok(PacketMsg::PacketDropped(header)) => {
                                 sender.send(GuiMessage::PacketDropped(header)).unwrap();
                         } 
 
-                        PacketMsg::ReadError(e) => {
+                        Ok(PacketMsg::ReadError(e)) => {
                                 sender.send(GuiMessage::Error(e)).unwrap();
-                        } 
+                        }
+
+                        Ok(PacketMsg::StreamOpenError) => {
+                            panic!()
+                        }
+
+                        Ok(PacketMsg::StreamEnd) => {
+                            state = ProcessingState::Idle;
+                        }
+
+                        Err(e) => {
+                            panic!(e)
+                        }
                     }
                 }
 
