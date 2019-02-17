@@ -45,7 +45,11 @@ pub struct AppConfig {
 
     /// Each output stream may have a vector of APIDs that it will forward
     /// to its output.
-    pub allowed_apids: Vec<Option<Vec<u16>>>,
+    pub allowed_output_apids: Vec<Option<Vec<u16>>>,
+
+    /// A vector of APIDs that can be received from an input stream.
+    /// If None, allow all APIDs.
+    pub allowed_input_apids: Option<Vec<u16>>,
 
     /// GUI theme for IMGUI
     pub theme: GuiTheme,
@@ -85,7 +89,8 @@ impl Default for AppConfig {
             input_selection:  Default::default(),
             output_settings: vec!(Default::default()),
             output_selection: vec!(Default::default()),
-            allowed_apids: vec!(Default::default()),
+            allowed_output_apids: vec!(Default::default()),
+            allowed_input_apids: None,
             theme: Default::default(),
             packet_size: Default::default(),
             little_endian_ccsds: false,

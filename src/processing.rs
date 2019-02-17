@@ -243,17 +243,7 @@ fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
 
     let mut ccsds_parser_config: CcsdsParserConfig = CcsdsParserConfig::new();
 
-    let mut allowed_apids: Vec<u16>  = vec!();
-    for allowed_apid_vec in app_config.allowed_apids.iter() {
-        allowed_apid_vec.clone().map(|vec| allowed_apids.extend(vec));
-    }
-    if allowed_apids.len() == 0 {
-        ccsds_parser_config.allowed_apids = None;
-    } else {
-        allowed_apids.sort();
-        allowed_apids.dedup();
-        ccsds_parser_config.allowed_apids = Some(allowed_apids);
-    }
+    ccsds_parser_config.allowed_apids = app_config.allowed_input_apids.clone();
 
     match app_config.packet_size {
         PacketSize::Variable => ccsds_parser_config.max_packet_length = None,
@@ -454,10 +444,11 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                                 remaining_timeout = SystemTime::now().duration_since(time_to_send).unwrap_or(Duration::from_secs(0));
                             }
 
+                            // send output to each stream, filtering by allowed apids
                             for index in 0..output_streams.len() {
                                 let apid_allowed;
 
-                                match app_config.allowed_apids[index] {
+                                match app_config.allowed_output_apids[index] {
                                     Some(ref apids) => {
                                         apid_allowed = apids.contains(&packet.header.control.apid());
                                     },

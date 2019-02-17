@@ -117,11 +117,11 @@ const WINDOW_WIDTH:  f32 = 680.0;
 /// Window height given to SDL
 const WINDOW_HEIGHT: f32 = 740.0;
 
-const STATS_FRAME_HEIGHT: f32 = 205.0;
+const STATS_FRAME_HEIGHT: f32 = 170.0;
 
 const CONFIG_SETTINGS_FRAME_HEIGHT: f32 = 50.0;
 
-const INPUT_SETTINGS_FRAME_HEIGHT: f32 = 65.0;
+const INPUT_SETTINGS_FRAME_HEIGHT: f32 = 100.0;
 
 const OUTPUT_SETTINGS_FRAME_HEIGHT: f32 = 100.0;
 
@@ -191,8 +191,8 @@ fn main() {
     if config.output_selection.len() == 0 {
         config.output_selection = vec!(Default::default());
     }
-    if config.allowed_apids.len() == 0 {
-        config.allowed_apids = vec!(None);
+    if config.allowed_output_apids.len() == 0 {
+        config.allowed_output_apids = vec!(None);
     }
 
     // Spawn processing thread
@@ -429,7 +429,11 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                         .show_borders(true)
                         .collapsible(true)
                         .build(|| {
-                            input_stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
+                            input_stream_ui(&ui,
+                                            &mut config.input_selection,
+                                            &mut config.input_settings,
+                                            &mut config.allowed_input_apids,
+                                            &mut imgui_str);
                         });
                 }
 
@@ -448,7 +452,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 if ui.small_button(im_str!("New")) {
                     config.output_selection.push(Default::default());
                     config.output_settings.push(Default::default());
-                    config.allowed_apids.push(None);
+                    config.allowed_output_apids.push(None);
                     output_index += 1;
                 }
                 ui.same_line(0.0);
@@ -469,7 +473,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     if config.output_selection.len() > 1 {
                         config.output_selection.remove(output_index);
                         config.output_settings.remove(output_index);
-                        config.allowed_apids.remove(output_index);
+                        config.allowed_output_apids.remove(output_index);
                         output_index = min(output_index, config.output_selection.len() - 1);
                     }
                 }
@@ -486,7 +490,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                             output_stream_ui(&ui,
                                              &mut config.output_selection[output_index],
                                              &mut config.output_settings[output_index],
-                                             &mut config.allowed_apids[output_index],
+                                             &mut config.allowed_output_apids[output_index],
                                              &mut imgui_str);
                         });
                 }
@@ -950,7 +954,11 @@ fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImS
     string.push_str(&imgui_str.to_str());
 }
 
-fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamSettings, imgui_str: &mut ImString) {
+fn input_stream_ui(ui: &Ui,
+                   selection: &mut StreamOption,
+                   input_settings: &mut StreamSettings,
+                   allowed_apids: &mut Option<Vec<u16>>,
+                   imgui_str: &mut ImString) {
     let mut input_selection: i32 = *selection as i32;
 
     ui.columns(4, im_str!("SelectInputType"), false);
@@ -964,8 +972,7 @@ fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut S
 
     *selection = num::FromPrimitive::from_i32(input_selection).unwrap();
 
-    ui.columns(1, im_str!("default"), false);
-    match selection {
+    ui.columns(1, im_str!("default"), false); match selection {
         StreamOption::File => {
             ui.text(im_str!("Select Input File Parameters:"));
             input_string(&ui, im_str!("File Name"), &mut input_settings.file.file_name, imgui_str);
@@ -995,12 +1002,14 @@ fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut S
             input_port(&ui, im_str!("Port"), &mut input_settings.tcp_server.port);
         },
     }
+
+    filter_apids_ui(ui, allowed_apids, imgui_str);
 }
 
 fn output_stream_ui(ui: &Ui,
                     selection: &mut StreamOption,
                     output_settings: &mut StreamSettings,
-                    allowed_apids: &mut Option<Vec<u16>>,
+                    allowed_output_apids: &mut Option<Vec<u16>>,
                     imgui_str: &mut ImString) {
     let mut input_selection: i32 = *selection as i32;
 
@@ -1050,6 +1059,10 @@ fn output_stream_ui(ui: &Ui,
     }
 
     ui.next_column();
+    filter_apids_ui(ui, allowed_output_apids, imgui_str);
+}
+
+fn filter_apids_ui(ui: &Ui, allowed_apids: &mut Option<Vec<u16>>, imgui_str: &mut ImString) {
     let mut filter_apids = allowed_apids.is_some();
 
     ui.checkbox(im_str!("Filter APIDs"), &mut filter_apids);
