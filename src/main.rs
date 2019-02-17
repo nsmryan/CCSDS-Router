@@ -65,7 +65,6 @@ extern crate floating_duration;
 #[macro_use] extern crate structopt;
 
 extern crate hexdump;
-extern crate itertools;
 
 extern crate ctrlc;
 
@@ -95,7 +94,6 @@ use floating_duration::TimeAsFloat;
 use structopt::*;
 
 use hexdump::*;
-use itertools::*;
 
 use imgui::*;
 
@@ -876,7 +874,7 @@ fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dro
                 ui.text("Total:");
 
                 ui.next_column();
-                let total_byte_count = processing_stats.packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u32>();
+                let total_byte_count = processing_stats.packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u64>();
                 ui.text(format!("{:>9}", total_byte_count));
 
                 ui.next_column();

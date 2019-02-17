@@ -35,7 +35,16 @@
     }
   },
   "output_selection": "File",
-  "allowed_apids": null,
+  "allowed_apids": [
+    511,
+    1301,
+    400,
+    1401,
+    414,
+    3,
+    16,
+    1
+  ],
   "theme": "Dark",
   "packet_size": "Variable",
   "little_endian_ccsds": true,

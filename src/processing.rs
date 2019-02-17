@@ -3,10 +3,13 @@ use std::sync::mpsc::{SyncSender, Sender, Receiver, RecvTimeoutError, sync_chann
 use std::time::{SystemTime, Duration};
 use std::io::Cursor;
 use std::thread;
+use std::cmp::min;
 
 use bytes::{Buf};
+use byteorder::{LittleEndian};
 
-use ccsds_primary_header::*;
+use ccsds_primary_header::primary_header::*;
+use ccsds_primary_header::parser::{CcsdsParser, CcsdsParserConfig};
 
 use types::*;
 use stream::*;
@@ -17,40 +20,84 @@ enum PacketMsg {
     ReadError(String),
     Packet(Packet, SystemTime),
     PacketDropped(CcsdsPrimaryHeader),
+    StreamParseError,
     StreamEnd,
 }
 
-// TODO there are a lot of settings here. maybe this is better off in the processing
-// thread, or maybe its a good place to simplify things by creating an interface.
 fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                        read_stream_settings: StreamSettings,
                        input_selection: StreamOption,
-                       frame_settings: FrameSettings,
-                       endianness: Endianness,
-                       packet_size: PacketSize) {
+                       ccsds_parser_config: CcsdsParserConfig) {
     match open_input_stream(&read_stream_settings, input_selection) {
         Ok(ref mut in_stream) => {
-            loop {
-                let mut packet: Packet
-                    = Packet { header: Default::default(),
-                               bytes: Vec::with_capacity(4096),
-                };
+            let mut ccsds_parser = CcsdsParser::with_config(ccsds_parser_config.clone());
+            ccsds_parser.bytes.reserve(4096);
 
+            'processing_loop: loop {
                 // NOTE need to handle timing out for network reads and still responding to
                 // control messages.
                 // NOTE need to handle reading from files that may grow, and ones that will not
                 // NOTE have a way to signal nominal end of stream for files, and report back
                 // differently
-                match stream_read_packet(in_stream, &mut packet, endianness, packet_size, &frame_settings) {
+                // NOTE magic number 4096 is used.
+                let current_num_bytes = ccsds_parser.bytes.len();
+                let num_bytes_avail = ccsds_parser.bytes.capacity();
+                match stream_read(in_stream, &mut ccsds_parser.bytes, num_bytes_avail - current_num_bytes) {
                     Err(e) => {
                         packet_sender.send(PacketMsg::ReadError(e)).unwrap();
                         break;
                     },
 
                     _ => {
-                        let recv_time = SystemTime::now();
+                        // loop, reading all new packets and sending them along.
+                        // if there are no new packets, go back to reading the stream for bytes
+                        let mut any_packets = false;
+                        while let Some(packet_bytes) = ccsds_parser.pull_packet() {
+                            let recv_time = SystemTime::now();
 
-                        packet_sender.send(PacketMsg::Packet( packet, recv_time )).unwrap();
+                            let mut packet: Packet
+                                = Packet { header: Default::default(),
+                                           bytes: Vec::with_capacity(packet_bytes.len()),
+                            };
+
+                            let bytes = packet_bytes.freeze();
+                            if ccsds_parser_config.little_endian_header {
+                                let little_header: PrimaryHeader<LittleEndian> = PrimaryHeader::from_slice(&bytes).unwrap();
+                                packet.header = little_header.to_big_endian();
+                            } else {
+                                packet.header = CcsdsPrimaryHeader::from_slice(&bytes).unwrap();
+                            }
+                            packet.bytes.extend(bytes);
+
+                            packet_sender.send(PacketMsg::Packet( packet, recv_time )).unwrap();
+
+                            any_packets = true;
+                        }
+
+                        // if we processed a series of packets, reset the remaining data to the
+                        // start of a new parser.
+                        if any_packets {
+                            let remaining_bytes = ccsds_parser.bytes.freeze();
+                            ccsds_parser = CcsdsParser::with_config(ccsds_parser_config.clone());
+                            ccsds_parser.bytes.reserve(4096);
+                            ccsds_parser.bytes.extend(remaining_bytes);
+                        } else if ccsds_parser.bytes.capacity() == ccsds_parser.bytes.len() {
+                            // attempt to extend the capacity to accomidate a larger packet.
+                            // if this doesn't work, exit.
+                            let max_packet_bytes = CCSDS_MAX_LENGTH +
+                                                   ccsds_parser.config.num_header_bytes +
+                                                   ccsds_parser.config.num_footer_bytes;
+                            if ccsds_parser.bytes.len() < max_packet_bytes as usize {
+                                let new_capacity = min(max_packet_bytes, (ccsds_parser.bytes.capacity() * 2) as u32);
+                                ccsds_parser.bytes.reserve(new_capacity as usize);
+                            } else {
+                                // NOTE this situation should not happen. The CCSDS parser should
+                                // advance over bytes that do not contain a header, and we have
+                                // grown the buffer large enough for the largest packet.
+                                packet_sender.send(PacketMsg::StreamParseError).unwrap();
+                                break 'processing_loop;
+                            }
+                        }
                     },
                 }
             }
@@ -60,6 +107,7 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
             packet_sender.send(PacketMsg::StreamOpenError).unwrap();
         }
     }
+
     packet_sender.send(PacketMsg::StreamEnd).unwrap();
 }
 
@@ -188,13 +236,27 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                               let input_settings = app_config.input_settings;
                               let input_selection = app_config.input_selection;
                               let packet_size = app_config.packet_size;
+
+                              let mut ccsds_parser_config: CcsdsParserConfig = CcsdsParserConfig::new();
+                              ccsds_parser_config.allowed_apids = app_config.allowed_apids.clone();
+                              match app_config.packet_size {
+                                  PacketSize::Variable => ccsds_parser_config.max_packet_length = None,
+                                  PacketSize::Fixed(num_bytes) => ccsds_parser_config.max_packet_length = Some(num_bytes),
+                              }
+                              ccsds_parser_config.num_header_bytes = app_config.frame_settings.prefix_bytes as u32;
+                              ccsds_parser_config.keep_header = app_config.frame_settings.keep_prefix;
+                              ccsds_parser_config.keep_sync = app_config.frame_settings.keep_prefix;
+
+                              ccsds_parser_config.num_footer_bytes = app_config.frame_settings.postfix_bytes as u32;
+                              ccsds_parser_config.keep_footer = app_config.frame_settings.keep_postfix;
+
+                              ccsds_parser_config.little_endian_header = app_config.little_endian_ccsds;
+
                               let input_stream_thread = thread::spawn(move || {
                                   input_stream_thread(packet_sender,
                                                       input_settings,
                                                       input_selection,
-                                                      frame_settings,
-                                                      endianness,
-                                                      packet_size);
+                                                      ccsds_parser_config);
                               });
 
                               state = ProcessingState::Processing;
@@ -380,12 +442,18 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                                 sender.send(GuiMessage::PacketDropped(header)).unwrap();
                         } 
 
+                        Ok(PacketMsg::StreamParseError) => {
+                            // NOTE this could be presented as an error, rather than panicing
+                            panic!("There was a unrecoverable parsing error while streaming data!");
+                        } 
+
                         Ok(PacketMsg::ReadError(e)) => {
                                 sender.send(GuiMessage::Error(e)).unwrap();
                         }
 
                         Ok(PacketMsg::StreamOpenError) => {
-                            panic!()
+                            // NOTE this could be presented as an error, rather than panicing
+                            panic!("The packet stream could not be opened!")
                         }
 
                         Ok(PacketMsg::StreamEnd) => {
@@ -393,6 +461,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         }
 
                         Err(e) => {
+                            // NOTE this could be presented as an error, rather than panicing
                             panic!(e)
                         }
                     }
