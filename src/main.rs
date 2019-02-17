@@ -84,6 +84,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::fs::File;
 use std::fs::create_dir;
 use std::path::PathBuf;
+use std::cmp::{min, max};
 
 use simplelog::*;
 
@@ -181,6 +182,17 @@ fn main() {
           // plus the size of a CCSDS Primary header, plus 1.
           config.max_length_bytes = 65535 + 6 + 1;
       },
+    }
+
+    // make sure there is at least one of the output settings
+    if config.output_settings.len() == 0 {
+        config.output_settings = vec!(Default::default());
+    }
+    if config.output_selection.len() == 0 {
+        config.output_selection = vec!(Default::default());
+    }
+    if config.allowed_apids.len() == 0 {
+        config.allowed_apids = vec!(None);
     }
 
     // Spawn processing thread
@@ -295,6 +307,8 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     let mut config_settings_shown = true;
 
     let mut packets_dropped = 0;
+
+    let mut output_index = 0;
 
     // index of selection for how to treat timestamps
     let mut timestamp_selection: i32 = 1;
@@ -430,6 +444,37 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                         output_settings_shown = !output_settings_shown;
                     }
                 });
+                ui.same_line(0.0);
+                if ui.small_button(im_str!("New")) {
+                    config.output_selection.push(Default::default());
+                    config.output_settings.push(Default::default());
+                    config.allowed_apids.push(None);
+                    output_index += 1;
+                }
+                ui.same_line(0.0);
+                if ui.small_button(im_str!("Prev")) {
+                    if output_index > 0 {
+                        output_index -= 1;
+                    }
+                }
+                ui.same_line(0.0);
+                ui.text(format!("{}", output_index));
+                ui.same_line(0.0);
+                if ui.small_button(im_str!("Next")) {
+                    output_index = min(output_index + 1, config.output_selection.len() - 1);
+                }
+                ui.same_line(0.0);
+                if ui.small_button(im_str!("Delete")) {
+                    // only allow deletion if this is not the last output
+                    if config.output_selection.len() > 1 {
+                        config.output_selection.remove(output_index);
+                        config.output_settings.remove(output_index);
+                        config.allowed_apids.remove(output_index);
+                        output_index = min(output_index, config.output_selection.len() - 1);
+                    }
+                }
+                ui.same_line(0.0);
+                ui.text(format!("({})", config.output_selection.len()));
                 if output_settings_shown {
                     ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0), OUTPUT_SETTINGS_FRAME_HEIGHT))
                         .movable(true)
@@ -438,7 +483,11 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                         .show_scrollbar(true)
                         .always_show_vertical_scroll_bar(true)
                         .build(|| {
-                            output_stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut config.allowed_apids, &mut imgui_str);
+                            output_stream_ui(&ui,
+                                             &mut config.output_selection[output_index],
+                                             &mut config.output_settings[output_index],
+                                             &mut config.allowed_apids[output_index],
+                                             &mut imgui_str);
                         });
                 }
 
@@ -829,27 +878,22 @@ fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dro
             ui.separator();
 
             for packet_stats in processing_stats.packet_history.values() {
-                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("      {:>5}", &packet_stats.apid.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
-                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("    {:>5}", packet_stats.packet_count.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
-                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("  {:>9}", &packet_stats.byte_count.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
-                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("    {:>5}", &packet_stats.last_len.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
-                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
                 ui.text(format!("    {:>5}", &packet_stats.last_seq.to_string()));
                 packet_summary_ui(ui, &packet_stats);

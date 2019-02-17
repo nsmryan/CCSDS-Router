@@ -1,7 +1,7 @@
 {
   "input_settings": {
     "file": {
-      "file_name": "Logged_Data_Large"
+      "file_name": "Logged_Data"
     },
     "tcp_client": {
       "port": 8000,
@@ -17,34 +17,60 @@
     }
   },
   "input_selection": "File",
-  "output_settings": {
-    "file": {
-      "file_name": "data.bin"
+  "output_settings": [
+    {
+      "file": {
+        "file_name": "data.bin"
+      },
+      "tcp_client": {
+        "port": 8000,
+        "ip": "127.0.0.1"
+      },
+      "tcp_server": {
+        "port": 8000,
+        "ip": "127.0.0.1"
+      },
+      "udp": {
+        "port": 8001,
+        "ip": "127.0.0.1"
+      }
     },
-    "tcp_client": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
-    "tcp_server": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
-    "udp": {
-      "port": 8001,
-      "ip": "127.0.0.1"
+    {
+      "file": {
+        "file_name": "data2.bin"
+      },
+      "tcp_client": {
+        "port": 8000,
+        "ip": "127.0.0.1"
+      },
+      "tcp_server": {
+        "port": 8000,
+        "ip": "127.0.0.1"
+      },
+      "udp": {
+        "port": 8001,
+        "ip": "127.0.0.1"
+      }
     }
-  },
-  "output_selection": "File",
+  ],
+  "output_selection": [
+    "File",
+    "File"
+  ],
   "allowed_apids": [
-    511,
-    1301,
-    400,
-    1401,
-    414,
-    3,
-    16,
-    1,
-    411
+    [
+      1,
+      16,
+      411,
+      1301,
+      414,
+      3,
+      400,
+      1401
+    ],
+    [
+      1
+    ]
   ],
   "theme": "Dark",
   "packet_size": "Variable",
@@ -55,14 +81,14 @@
     "postfix_bytes": 0,
     "keep_postfix": false
   },
-  "max_length_bytes": 4096,
+  "max_length_bytes": 65542,
   "timestamp_setting": "Asap",
   "timestamp_def": {
     "offset": 0,
-    "num_bytes_seconds": "FourBytes",
-    "num_bytes_subseconds": "FourBytes",
-    "subsecond_resolution": 0.000001,
-    "is_little_endian": true
+    "num_bytes_seconds": "ZeroBytes",
+    "num_bytes_subseconds": "ZeroBytes",
+    "subsecond_resolution": 0.0,
+    "is_little_endian": false
   },
-  "auto_start": true
+  "auto_start": false
 }

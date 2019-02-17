@@ -29,7 +29,7 @@ impl Default for GuiTheme {
 /// inputs and outputs. This struct is loaded from a configuration file at startup,
 /// and modified through the GUI.
 /// It is then passed to the processing thread to start processing packets.
-#[derive(Default, PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Settings for input stream
     pub input_settings:  StreamSettings,
@@ -38,12 +38,14 @@ pub struct AppConfig {
     pub input_selection:  StreamOption,
 
     /// Settings for ouput stream
-    pub output_settings: StreamSettings,
+    pub output_settings: Vec<StreamSettings>,
 
     /// Selection of which type of stream to use for output
-    pub output_selection: StreamOption,
+    pub output_selection: Vec<StreamOption>,
 
-    pub allowed_apids: Option<Vec<u16>>,
+    /// Each output stream may have a vector of APIDs that it will forward
+    /// to its output.
+    pub allowed_apids: Vec<Option<Vec<u16>>>,
 
     /// GUI theme for IMGUI
     pub theme: GuiTheme,
@@ -74,6 +76,26 @@ pub struct AppConfig {
     /// start button.
     #[serde(default)]
     pub auto_start: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> AppConfig {
+        AppConfig {
+            input_settings:  Default::default(),
+            input_selection:  Default::default(),
+            output_settings: vec!(Default::default()),
+            output_selection: vec!(Default::default()),
+            allowed_apids: vec!(Default::default()),
+            theme: Default::default(),
+            packet_size: Default::default(),
+            little_endian_ccsds: false,
+            frame_settings: Default::default(),
+            max_length_bytes: CCSDS_MAX_LENGTH as i32,
+            timestamp_setting: Default::default(),
+            timestamp_def: Default::default(),
+            auto_start: false,
+        }
+    }
 }
 
 /// The frame settings describe an enclosing packet header wrapping the CCSDS packets with a fixed

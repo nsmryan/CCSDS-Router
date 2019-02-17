@@ -242,7 +242,19 @@ fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
     let packet_size = app_config.packet_size;
 
     let mut ccsds_parser_config: CcsdsParserConfig = CcsdsParserConfig::new();
-    ccsds_parser_config.allowed_apids = app_config.allowed_apids.clone();
+
+    let mut allowed_apids: Vec<u16>  = vec!();
+    for allowed_apid_vec in app_config.allowed_apids.iter() {
+        allowed_apid_vec.clone().map(|vec| allowed_apids.extend(vec));
+    }
+    if allowed_apids.len() == 0 {
+        ccsds_parser_config.allowed_apids = None;
+    } else {
+        allowed_apids.sort();
+        allowed_apids.dedup();
+        ccsds_parser_config.allowed_apids = Some(allowed_apids);
+    }
+
     match app_config.packet_size {
         PacketSize::Variable => ccsds_parser_config.max_packet_length = None,
         PacketSize::Fixed(num_bytes) => ccsds_parser_config.max_packet_length = Some(num_bytes),
@@ -273,7 +285,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                    bytes: Vec::with_capacity(4096),
     };
 
-    let mut out_stream = WriteStream::Null;
+    let mut output_streams = vec!();
 
     let mut endianness: Endianness = Endianness::Little;
 
@@ -286,7 +298,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
     'state_loop: loop {
         match state {
             ProcessingState::Idle => {
-                out_stream = WriteStream::Null;
+                output_streams = vec!();
 
                 let msg_result = receiver.recv().ok();
                 match msg_result {
@@ -303,24 +315,31 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         }
 
                         // open streams
-                        match open_output_stream(&app_config.output_settings, app_config.output_selection) {
-                          Ok(stream) => {
-                              out_stream = stream;
+                        for index in 0..app_config.output_settings.len() {
+                            let output_stream = open_output_stream(&app_config.output_settings[index],
+                                                                   app_config.output_selection[index]);
+                            match output_stream {
+                                Ok(stream) => {
+                                    output_streams.push(stream)
+                                },
 
-                              // spawn off a thread for reading the input stream
-                              // TODO make this a config option for depth
-                              let (sender, receiver) = sync_channel(100);
-                              packet_receiver = receiver;
-
-                              start_input_thread(app_config.clone(), sender);
-                              state = ProcessingState::Processing;
-                          },
-
-                          Err(err_string) => {
-                              sender.send(GuiMessage::Error(err_string)).unwrap();
-                              sender.send(GuiMessage::Finished).unwrap();
-                          },
+                                Err(err_string) => {
+                                    sender.send(GuiMessage::Error(err_string)).unwrap();
+                                    sender.send(GuiMessage::Finished).unwrap();
+                                    state = ProcessingState::Idle;
+                                    output_streams = vec!();
+                                    continue 'state_loop;
+                                },
+                             }
                         }
+
+                        // spawn off a thread for reading the input stream
+                        // TODO make this a config option for depth
+                        let (sender, receiver) = sync_channel(100);
+                        packet_receiver = receiver;
+
+                        start_input_thread(app_config.clone(), sender);
+                        state = ProcessingState::Processing;
                     },
 
                     Some(ProcessingMsg::Terminate) => {
@@ -435,7 +454,21 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                                 remaining_timeout = SystemTime::now().duration_since(time_to_send).unwrap_or(Duration::from_secs(0));
                             }
 
-                            stream_send(&mut out_stream, &packet.bytes);
+                            for index in 0..output_streams.len() {
+                                let apid_allowed;
+
+                                match app_config.allowed_apids[index] {
+                                    Some(ref apids) => {
+                                        apid_allowed = apids.contains(&packet.header.control.apid());
+                                    },
+
+                                    None => apid_allowed = true,
+                                }
+                                
+                                if apid_allowed {
+                                    stream_send(&mut output_streams[index], &packet.bytes);
+                                }
+                            }
 
                             /* Report packet to GUI */
                             let mut packet_update = PacketUpdate { apid: packet.header.control.apid(),

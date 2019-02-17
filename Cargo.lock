@@ -86,7 +86,6 @@ dependencies = [
  "gl 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "hexdump 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "imgui 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
- "imgui-ext 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "imgui-opengl-renderer 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "imgui-sdl2 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -233,25 +232,6 @@ version = "0.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "imgui-sys 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "imgui-ext"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "imgui 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)",
- "imgui-ext-derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "imgui-ext-derive"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "proc-macro2 0.4.24 (registry+https://github.com/rust-lang/crates.io-index)",
- "quote 0.6.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "syn 0.15.24 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -894,8 +874,6 @@ dependencies = [
 "checksum hexdump 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "850f3f2c33d20c0f96c4485e087dd580ff041d720988ebf4c84a42acf739262b"
 "checksum humantime 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3ca7e5f2e110db35f93b837c81797f3714500b81d517bf20c431b16d3ca4f114"
 "checksum imgui 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)" = "42ce4bcdc6187241a000565b7944cb6e866e7defb7247f2d6404410f904e161f"
-"checksum imgui-ext 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b906fced3db78b3a9202732a7bb4ef8f737b78a26dc84ddce4313ac3d1f04652"
-"checksum imgui-ext-derive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2abea9b071ca8f6cb44d67d2222dc1866afb740ca3546e88870bfea3e10cc047"
 "checksum imgui-opengl-renderer 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2f56d72ab8b9588199de423c571da15ad878f54a19bcf83be94abb96ecb1782b"
 "checksum imgui-sdl2 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f926d074ea326c7922af71e6ba2895108398a7d3f59afd61d29f84f2959c9de6"
 "checksum imgui-sys 0.0.21 (registry+https://github.com/rust-lang/crates.io-index)" = "3c7c53417637b6d47ed92a2679015101e50acb13f07c95180b29ccca3d4e4f93"
