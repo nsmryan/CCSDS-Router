@@ -15,6 +15,7 @@ use types::*;
 use stream::*;
 
 
+#[derive(Debug, Clone)]
 enum PacketMsg {
     StreamOpenError,
     ReadError(String),
@@ -22,6 +23,14 @@ enum PacketMsg {
     PacketDropped(CcsdsPrimaryHeader),
     StreamParseError,
     StreamEnd,
+}
+
+#[derive(Debug, Clone)]
+struct TimeState {
+  timestamp_setting: TimestampSetting,
+  timestamp_def: TimestampDef,
+  system_to_packet_time: Option<SystemTime>,
+  last_send_time: SystemTime,
 }
 
 fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
@@ -179,6 +188,82 @@ fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
     timestamp
 }
 
+fn determine_timeout(time_state: &mut TimeState,
+                     packet: &Packet) -> Duration {
+    let timeout: Duration;
+
+    match time_state.timestamp_setting {
+        TimestampSetting::Asap => {
+            timeout = Duration::from_secs(0);
+        }
+
+        TimestampSetting::Replay => {
+           let timestamp = decode_timestamp(&packet.bytes, &time_state.timestamp_def);
+
+            match time_state.system_to_packet_time {
+                None => {
+                    time_state.system_to_packet_time = Some(SystemTime::now() - timestamp);
+                    timeout = Duration::from_secs(0);
+                },
+
+                Some(time_offset) =>
+                {
+                    let timestamp_sys_time = time_offset + timestamp;
+
+                    match timestamp_sys_time.duration_since(SystemTime::now()) {
+                        Ok(remaining_time) => timeout = remaining_time,
+
+                        _ => timeout = Duration::from_secs(0),
+                    }
+                },
+            }
+        },
+
+        TimestampSetting::Delay(duration) => {
+            timeout = duration;
+        },
+
+        TimestampSetting::Throttle(duration) => {
+            match duration.checked_sub(time_state.last_send_time.elapsed().unwrap()) {
+                Some(remaining_time) => timeout = remaining_time,
+
+                None => timeout = Duration::from_millis(0),
+            }
+        },
+    }
+
+    timeout
+}
+
+fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
+    let frame_settings = app_config.frame_settings.clone();
+    let input_settings = app_config.input_settings;
+    let input_selection = app_config.input_selection;
+    let packet_size = app_config.packet_size;
+
+    let mut ccsds_parser_config: CcsdsParserConfig = CcsdsParserConfig::new();
+    ccsds_parser_config.allowed_apids = app_config.allowed_apids.clone();
+    match app_config.packet_size {
+        PacketSize::Variable => ccsds_parser_config.max_packet_length = None,
+        PacketSize::Fixed(num_bytes) => ccsds_parser_config.max_packet_length = Some(num_bytes),
+    }
+    ccsds_parser_config.num_header_bytes = app_config.frame_settings.prefix_bytes as u32;
+    ccsds_parser_config.keep_header = app_config.frame_settings.keep_prefix;
+    ccsds_parser_config.keep_sync = app_config.frame_settings.keep_prefix;
+
+    ccsds_parser_config.num_footer_bytes = app_config.frame_settings.postfix_bytes as u32;
+    ccsds_parser_config.keep_footer = app_config.frame_settings.keep_postfix;
+
+    ccsds_parser_config.little_endian_header = app_config.little_endian_ccsds;
+
+    let input_stream_thread = thread::spawn(move || {
+        input_stream_thread(sender,
+                            input_settings,
+                            input_selection,
+                            ccsds_parser_config);
+    });
+}
+
 /* Packet Processing Thread */
 pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
     let mut state: ProcessingState = ProcessingState::Idle;
@@ -193,14 +278,10 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
     let mut endianness: Endianness = Endianness::Little;
 
     let mut timeout: Duration;
-    let mut last_send_time: SystemTime = SystemTime::now();
 
-    let mut system_to_packet_time: Option<SystemTime> = None;
-
-    let (mut packet_sender, mut packet_receiver) = sync_channel(100);
+    let (_, mut packet_receiver) = sync_channel(100);
 
     let mut app_config: AppConfig = Default::default();
-
 
     'state_loop: loop {
         match state {
@@ -228,37 +309,10 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                               // spawn off a thread for reading the input stream
                               // TODO make this a config option for depth
-                              let channels = sync_channel(100);
-                              packet_sender = channels.0;
-                              packet_receiver = channels.1;
+                              let (sender, receiver) = sync_channel(100);
+                              packet_receiver = receiver;
 
-                              let frame_settings = app_config.frame_settings.clone();
-                              let input_settings = app_config.input_settings;
-                              let input_selection = app_config.input_selection;
-                              let packet_size = app_config.packet_size;
-
-                              let mut ccsds_parser_config: CcsdsParserConfig = CcsdsParserConfig::new();
-                              ccsds_parser_config.allowed_apids = app_config.allowed_apids.clone();
-                              match app_config.packet_size {
-                                  PacketSize::Variable => ccsds_parser_config.max_packet_length = None,
-                                  PacketSize::Fixed(num_bytes) => ccsds_parser_config.max_packet_length = Some(num_bytes),
-                              }
-                              ccsds_parser_config.num_header_bytes = app_config.frame_settings.prefix_bytes as u32;
-                              ccsds_parser_config.keep_header = app_config.frame_settings.keep_prefix;
-                              ccsds_parser_config.keep_sync = app_config.frame_settings.keep_prefix;
-
-                              ccsds_parser_config.num_footer_bytes = app_config.frame_settings.postfix_bytes as u32;
-                              ccsds_parser_config.keep_footer = app_config.frame_settings.keep_postfix;
-
-                              ccsds_parser_config.little_endian_header = app_config.little_endian_ccsds;
-
-                              let input_stream_thread = thread::spawn(move || {
-                                  input_stream_thread(packet_sender,
-                                                      input_settings,
-                                                      input_selection,
-                                                      ccsds_parser_config);
-                              });
-
+                              start_input_thread(app_config.clone(), sender);
                               state = ProcessingState::Processing;
                           },
 
@@ -314,63 +368,23 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
             },
 
             ProcessingState::Processing => {
-                system_to_packet_time = None;
+                let mut time_state = TimeState{
+                                 timestamp_setting: app_config.timestamp_setting.clone(),
+                                 timestamp_def: app_config.timestamp_def.clone(),
+                                 system_to_packet_time: None,
+                                 last_send_time: SystemTime::now(),
+                };
+
 
                 while state == ProcessingState::Processing {
                     /* Process a Packet */
                     //let packet_msg = packet_receiver.recv_timeout(Duration::from_secs(0));
                     let packet_msg = packet_receiver.recv();
 
-
                     match packet_msg {
                         Ok(PacketMsg::Packet(packet, recv_time)) => {
                             // determine delay to use from time settings
-                            match app_config.timestamp_setting {
-                                TimestampSetting::Asap => {
-                                    timeout = Duration::from_secs(0);
-                                }
-
-                                TimestampSetting::Replay => {
-                                   let timestamp = decode_timestamp(&packet.bytes, &app_config.timestamp_def);
-
-                                    match system_to_packet_time {
-                                        None => {
-                                            system_to_packet_time = Some(SystemTime::now() - timestamp);
-                                            timeout = Duration::from_secs(0);
-                                        },
-
-                                        Some(time_offset) =>
-                                        {
-                                            let timestamp_sys_time = time_offset + timestamp;
-
-                                            match timestamp_sys_time.duration_since(SystemTime::now()) {
-                                                Ok(remaining_time) => timeout = remaining_time,
-
-                                                _ => timeout = Duration::from_secs(0),
-                                            }
-                                        },
-                                    }
-                                },
-
-                                TimestampSetting::Delay(duration) => {
-                                    // NOTE this puts a delay between each packet, rather then delaying
-                                    // a stream of packets. the second design is more correct, but
-                                    // would require a separate streaming thread to collect packets for
-                                    // us to read out in the processing thread.
-                                    timeout = duration;
-                                },
-
-                                TimestampSetting::Throttle(duration) => {
-                                    // NOTE we unwrap here assuming that system time does not go backwards.
-                                    // this assumption is not always true, and we should handle this more
-                                    // gracefully.
-                                    match duration.checked_sub(last_send_time.elapsed().unwrap()) {
-                                        Some(remaining_time) => timeout = remaining_time,
-
-                                        None => timeout = Duration::from_millis(0),
-                                    }
-                                },
-                            }
+                            timeout = determine_timeout(&mut time_state, &packet);
 
                             /* Check for Control Messages */
                             let time_to_send = SystemTime::now() + timeout;
@@ -433,7 +447,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                             packet_update.bytes.extend(packet.bytes.clone());
 
-                            last_send_time = SystemTime::now();
+                            time_state.last_send_time = SystemTime::now();
 
                             sender.send(GuiMessage::PacketUpdate(packet_update)).unwrap();
                         }
@@ -479,3 +493,4 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
     // the result is not inspected here- we are going to exit whether or not our message is received.
     let _ = sender.send(GuiMessage::Terminate);
 }
+

@@ -140,7 +140,7 @@ impl Default for Endianness {
 }
 
 /// The packet structure contains the data for a packet, as well as the primary header
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Packet {
     pub header: CcsdsPrimaryHeader,
     pub bytes:  Vec<u8>,
