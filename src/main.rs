@@ -111,7 +111,7 @@ use style::*;
 
 
 /// Window width given to SDL
-const WINDOW_WIDTH:  f32 = 840.0;
+const WINDOW_WIDTH:  f32 = 680.0;
 
 /// Window height given to SDL
 const WINDOW_HEIGHT: f32 = 740.0;
@@ -815,67 +815,59 @@ fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dro
 
             ui.separator();
 
-            ui.columns(10, im_str!("PacketStats"), true);
+            ui.columns(5, im_str!("PacketStats"), true);
+
+            ui.text("       Apid: ");
+            ui.next_column();
+            ui.text("    Count: ");
+            ui.next_column();
+            ui.text("  Total Bytes: ");
+            ui.next_column();
+            ui.text("   Byte Len:");
+            ui.next_column();
+            ui.text("   Last Seq:");
+            ui.separator();
 
             for packet_stats in processing_stats.packet_history.values() {
-                ui.text("Apid: ");
                 packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
-                ui.text(format!("{:>5}", &packet_stats.apid.to_string()));
-                packet_summary_ui(ui, &packet_stats);
-
-                ui.next_column();
-                ui.text("Count: ");
-                packet_summary_ui(ui, &packet_stats);
-                ui.next_column();
-                ui.text(format!("{:>5}", packet_stats.packet_count.to_string()));
+                ui.text(format!("      {:>5}", &packet_stats.apid.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
-                ui.next_column();
-                ui.text("Total Bytes: ");
                 packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
-                ui.text(format!("{:>9}", &packet_stats.byte_count.to_string()));
+                ui.text(format!("    {:>5}", packet_stats.packet_count.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
-                ui.next_column();
-                ui.text("Byte Len:");
                 packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
-                ui.text(format!("{:>5}", &packet_stats.last_len.to_string()));
+                ui.text(format!("  {:>9}", &packet_stats.byte_count.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
-                ui.next_column();
-                ui.text("Last Seq:");
                 packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
-                ui.text(format!("{:>5}", &packet_stats.last_seq.to_string()));
+                ui.text(format!("    {:>5}", &packet_stats.last_len.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
+                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
+                ui.text(format!("    {:>5}", &packet_stats.last_seq.to_string()));
+                packet_summary_ui(ui, &packet_stats);
             }
 
             if processing_stats.packet_history.len() > 0 {
                 ui.separator();
 
-                ui.text("Total:");
-
                 ui.next_column();
-                ui.text(processing_stats.packet_history.len().to_string());
-
-                ui.next_column();
-                ui.text("Total");
+                ui.text(format!("         {}", processing_stats.packet_history.len()));
 
                 ui.next_column();
                 let total_count = processing_stats.packet_history.values().map(|stats: &PacketStats| stats.packet_count as u32).sum::<u32>();
-                ui.text(format!("{:>5}", total_count));
-
-                ui.next_column();
-                ui.text("Total:");
+                ui.text(format!("    {:>5}", total_count));
 
                 ui.next_column();
                 let total_byte_count = processing_stats.packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u64>();
-                ui.text(format!("{:>9}", total_byte_count));
+                ui.text(format!("  {:>9}", total_byte_count));
 
                 ui.next_column();
             }
