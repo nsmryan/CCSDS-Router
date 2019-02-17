@@ -37,4 +37,4 @@ itertools = "0.8"
 
 ctrlc = "3.1"
 
-ccsds_primary_header="0.6"
+ccsds_primary_header="0.10.2"

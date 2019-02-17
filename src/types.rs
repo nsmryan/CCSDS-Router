@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 use std::default::Default;
 use std::collections::HashMap;
 
-use ccsds_primary_header::*;
+use ccsds_primary_header::primary_header::*;
 
 
 use stream::*;
@@ -105,10 +105,10 @@ pub struct PacketStats {
     pub apid: Apid,
 
     /// The number of packets received of the APID
-    pub packet_count: u16,
+    pub packet_count: u64,
 
     /// The number of bytes received of the APID
-    pub byte_count: u32,
+    pub byte_count: u64,
 
     /// The last sequence count read for this APID
     pub last_seq: u16,
@@ -161,7 +161,7 @@ impl PacketStats {
     pub fn update(&mut self, packet_update: PacketUpdate) {
         self.apid = packet_update.apid;
         self.packet_count += 1;
-        self.byte_count += packet_update.packet_length as u32;
+        self.byte_count += packet_update.packet_length as u64;
         self.last_seq = packet_update.seq_count;
         self.last_len = packet_update.packet_length;
         self.recv_time = packet_update.recv_time;

@@ -1,7 +1,7 @@
 {
   "input_settings": {
     "file": {
-      "file_name": "Logged_Data"
+      "file_name": "Logged_Data_Large"
     },
     "tcp_client": {
       "port": 8000,
@@ -35,7 +35,17 @@
     }
   },
   "output_selection": "File",
-  "allowed_apids": null,
+  "allowed_apids": [
+    511,
+    1301,
+    400,
+    1401,
+    414,
+    3,
+    16,
+    1,
+    411
+  ],
   "theme": "Dark",
   "packet_size": "Variable",
   "little_endian_ccsds": true,
