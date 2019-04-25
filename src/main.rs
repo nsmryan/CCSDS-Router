@@ -261,7 +261,6 @@ fn main() {
 }
 
 fn ui_config_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState) {
-    ui.text("Configuration");
     ui.same_line(0.0);
     ui.with_id("ToggleConfigSettings", || {
         // align the word 'Toggle' with other settings
@@ -274,6 +273,90 @@ fn ui_config_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState)
     });
     if app_state.config_settings_shown {
         configuration_ui(&ui, config, &mut app_state.config_file_name, &mut app_state.imgui_str);
+    }
+}
+
+fn ui_input_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState) {
+    ui.same_line(0.0);
+    ui.with_id("ToggleInputSettings", || {
+        // align the word 'Toggle' with other settings
+        ui.text(" ");
+        ui.same_line(0.0);
+        // button to show or hide section
+        if ui.small_button(im_str!("Toggle")) {
+            app_state.input_settings_shown = !app_state.input_settings_shown;
+        }
+    });
+    if app_state.input_settings_shown {
+        ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0), INPUT_SETTINGS_FRAME_HEIGHT))
+            .show_borders(true)
+            .collapsible(true)
+            .build(|| {
+                input_stream_ui(&ui,
+                                &mut config.input_selection,
+                                &mut config.input_settings,
+                                &mut config.allowed_input_apids,
+                                &mut app_state.imgui_str);
+            });
+    }
+}
+
+fn ui_output_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState, output_index: &mut usize) {
+    ui.same_line(0.0);
+    ui.with_id("ToggleOutputSettings", || {
+        // align the word 'Toggle' with other settings
+        ui.text("");
+        ui.same_line(0.0);
+        // button to show or hide section
+        if ui.small_button(im_str!("Toggle")) {
+            app_state.output_settings_shown = !app_state.output_settings_shown;
+        }
+    });
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("New")) {
+        config.output_selection.push(Default::default());
+        config.output_settings.push(Default::default());
+        config.allowed_output_apids.push(None);
+        *output_index += 1;
+    }
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("Prev")) {
+        if *output_index > 0 {
+            *output_index -= 1;
+        }
+    }
+    ui.same_line(0.0);
+    ui.text(format!("{}", *output_index));
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("Next")) {
+        *output_index = min(*output_index + 1, config.output_selection.len() - 1);
+    }
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("Delete")) {
+        // only allow deletion if this is not the last output
+        if config.output_selection.len() > 1 {
+            config.output_selection.remove(*output_index);
+            config.output_settings.remove(*output_index);
+            config.allowed_output_apids.remove(*output_index);
+            *output_index = min(*output_index, config.output_selection.len() - 1);
+        }
+    }
+    ui.same_line(0.0);
+    ui.text(format!("({})", config.output_selection.len()));
+    if app_state.output_settings_shown {
+        ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0), OUTPUT_SETTINGS_FRAME_HEIGHT))
+            .movable(true)
+            .show_borders(true)
+            .collapsible(true)
+            .show_scrollbar(true)
+            .always_show_vertical_scroll_bar(true)
+            .build(|| {
+                output_stream_ui(&ui,
+                                 &mut config.output_selection[*output_index],
+                                 &mut config.output_settings[*output_index],
+                                 &mut config.allowed_output_apids[*output_index],
+                                 &mut app_state.imgui_str);
+            });
     }
 }
 
@@ -317,8 +400,6 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     // NOTE this could be a state machine instead of bools
     let mut paused = false;
     let mut processing = config.auto_start;
-
-    let mut packets_dropped = 0;
 
     let mut output_index = 0;
 
@@ -372,7 +453,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 },
 
                 GuiMessage::PacketDropped(header) => {
-                    packets_dropped += 1;
+                    processing_stats.packets_dropped += 1;
                 },
 
                 GuiMessage::Finished => {
@@ -385,7 +466,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
             }
         }
 
-        if packet_recv_diffs.len() > 0  &&
+        if packet_recv_diffs.len() > 0 &&
               SystemTime::now().duration_since(*packet_recv_diffs.get(0).unwrap()).unwrap() > Duration::from_secs(1) {
             processing_stats.packets_per_second = packet_recv_diffs.len();
             processing_stats.bytes_per_second = packet_recv_bytes;
@@ -405,91 +486,16 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
             .resizable(false)
             .collapsible(false)
             .build(|| {
+                ui.text("Configuration");
                 ui_config_settings(&ui, config, &mut app_state);
 
                 /* Source Selection */
                 ui.text("Input Settings");
-                ui.same_line(0.0);
-                ui.with_id("ToggleInputSettings", || {
-                    // align the word 'Toggle' with other settings
-                    ui.text(" ");
-                    ui.same_line(0.0);
-                    // button to show or hide section
-                    if ui.small_button(im_str!("Toggle")) {
-                        app_state.input_settings_shown = !app_state.input_settings_shown;
-                    }
-                });
-                if app_state.input_settings_shown {
-                    ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0), INPUT_SETTINGS_FRAME_HEIGHT))
-                        .show_borders(true)
-                        .collapsible(true)
-                        .build(|| {
-                            input_stream_ui(&ui,
-                                            &mut config.input_selection,
-                                            &mut config.input_settings,
-                                            &mut config.allowed_input_apids,
-                                            &mut app_state.imgui_str);
-                        });
-                }
+                ui_input_settings(&ui, config, &mut app_state);
 
                 /* Output Settings */
                 ui.text("Output Settings");
-                ui.same_line(0.0);
-                ui.with_id("ToggleOutputSettings", || {
-                    // align the word 'Toggle' with other settings
-                    ui.text("");
-                    ui.same_line(0.0);
-                    // button to show or hide section
-                    if ui.small_button(im_str!("Toggle")) {
-                        app_state.output_settings_shown = !app_state.output_settings_shown;
-                    }
-                });
-                ui.same_line(0.0);
-                if ui.small_button(im_str!("New")) {
-                    config.output_selection.push(Default::default());
-                    config.output_settings.push(Default::default());
-                    config.allowed_output_apids.push(None);
-                    output_index += 1;
-                }
-                ui.same_line(0.0);
-                if ui.small_button(im_str!("Prev")) {
-                    if output_index > 0 {
-                        output_index -= 1;
-                    }
-                }
-                ui.same_line(0.0);
-                ui.text(format!("{}", output_index));
-                ui.same_line(0.0);
-                if ui.small_button(im_str!("Next")) {
-                    output_index = min(output_index + 1, config.output_selection.len() - 1);
-                }
-                ui.same_line(0.0);
-                if ui.small_button(im_str!("Delete")) {
-                    // only allow deletion if this is not the last output
-                    if config.output_selection.len() > 1 {
-                        config.output_selection.remove(output_index);
-                        config.output_settings.remove(output_index);
-                        config.allowed_output_apids.remove(output_index);
-                        output_index = min(output_index, config.output_selection.len() - 1);
-                    }
-                }
-                ui.same_line(0.0);
-                ui.text(format!("({})", config.output_selection.len()));
-                if app_state.output_settings_shown {
-                    ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0), OUTPUT_SETTINGS_FRAME_HEIGHT))
-                        .movable(true)
-                        .show_borders(true)
-                        .collapsible(true)
-                        .show_scrollbar(true)
-                        .always_show_vertical_scroll_bar(true)
-                        .build(|| {
-                            output_stream_ui(&ui,
-                                             &mut config.output_selection[output_index],
-                                             &mut config.output_settings[output_index],
-                                             &mut config.allowed_output_apids[output_index],
-                                             &mut app_state.imgui_str);
-                        });
-                }
+                ui_output_settings(&ui, config, &mut app_state, &mut output_index);
 
                 /* CCSDS Packet Settings */
                 ui.text("CCSDS Settings");
@@ -509,24 +515,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
-                let mut dims = ImVec2::new(WINDOW_WIDTH - 15.0, STATS_FRAME_HEIGHT);
-                if !app_state.config_settings_shown {
-                    dims.y += CONFIG_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                if !app_state.input_settings_shown {
-                    dims.y += INPUT_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                if !app_state.output_settings_shown {
-                    dims.y += OUTPUT_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                if !app_state.ccsds_settings_shown {
-                    dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                packet_statistics_ui(&ui, &processing_stats, packets_dropped, dims);
+                packet_statistics_ui(&ui, &processing_stats, &app_state, processing_stats.packets_dropped);
 
                 /* Control Buttons */
                 if ui.small_button(im_str!("Clear Stats")) {
@@ -841,7 +830,25 @@ fn packet_summary_ui(ui: &Ui, packet_stats: &PacketStats) {
     }
 }
 
-fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dropped: usize, dims: ImVec2) {
+fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, app_state: &AppState, packets_dropped: usize) {
+    let mut dims = ImVec2::new(WINDOW_WIDTH - 15.0, STATS_FRAME_HEIGHT);
+    if !app_state.config_settings_shown {
+        dims.y += CONFIG_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+    if !app_state.input_settings_shown {
+        dims.y += INPUT_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+    if !app_state.output_settings_shown {
+        dims.y += OUTPUT_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+    if !app_state.ccsds_settings_shown {
+        dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+
     ui.child_frame(im_str!("Apid Statistics"), dims)
         .show_borders(true)
         .collapsible(true)
@@ -1001,6 +1008,12 @@ fn input_stream_ui(ui: &Ui,
     filter_apids_ui(ui, allowed_apids, imgui_str);
 }
 
+fn ui_ip_port(ui: &Ui, ip: &mut String, port: &mut u16, imgui_str: &mut ImString) {
+    input_string(ui, im_str!("IP"), ip, imgui_str);
+    ui.next_column();
+    input_port(ui, &mut im_str!("Port"), port);
+}
+
 fn output_stream_ui(ui: &Ui,
                     selection: &mut StreamOption,
                     output_settings: &mut StreamSettings,
@@ -1031,25 +1044,19 @@ fn output_stream_ui(ui: &Ui,
         StreamOption::Udp => {
             ui.text(im_str!("Select Udp Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut output_settings.udp.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, &mut im_str!("Port"), &mut output_settings.udp.port);
+            ui_ip_port(ui, &mut output_settings.udp.ip, &mut output_settings.udp.port, imgui_str);
         },
 
         StreamOption::TcpClient => {
             ui.text(im_str!("Select Tcp Client Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut output_settings.tcp_client.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut output_settings.tcp_client.port);
+            ui_ip_port(ui, &mut output_settings.tcp_client.ip, &mut output_settings.tcp_client.port, imgui_str);
         },
 
         StreamOption::TcpServer => {
             ui.text(im_str!("Select Tcp Server Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut output_settings.tcp_server.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut output_settings.tcp_server.port);
+            ui_ip_port(ui, &mut output_settings.tcp_server.ip, &mut output_settings.tcp_server.port, imgui_str);
         },
     }
 
