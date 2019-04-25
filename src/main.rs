@@ -260,6 +260,23 @@ fn main() {
     info!("Exiting");
 }
 
+fn ui_config_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState) {
+    ui.text("Configuration");
+    ui.same_line(0.0);
+    ui.with_id("ToggleConfigSettings", || {
+        // align the word 'Toggle' with other settings
+        ui.text("  ");
+        ui.same_line(0.0);
+        // button to show or hide section
+        if ui.small_button(im_str!("Toggle")) {
+            app_state.config_settings_shown = !app_state.config_settings_shown;
+        }
+    });
+    if app_state.config_settings_shown {
+        configuration_ui(&ui, config, &mut app_state.config_file_name, &mut app_state.imgui_str);
+    }
+}
+
 fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     let sdl_context = sdl2::init().unwrap();
     let video = sdl_context.video().unwrap();
@@ -290,9 +307,9 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
+    let mut app_state: AppState = AppState::new();
+    app_state.config_file_name = config_file_name.clone();
 
-    // buffer for imgui strings
-    let mut imgui_str = ImString::with_capacity(256);
 
     /* Application State */
     let mut processing_stats: ProcessingStats = Default::default();
@@ -301,17 +318,9 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     let mut paused = false;
     let mut processing = config.auto_start;
 
-    let mut input_settings_shown = true;
-    let mut output_settings_shown = true;
-    let mut ccsds_settings_shown = true;
-    let mut config_settings_shown = true;
-
     let mut packets_dropped = 0;
 
     let mut output_index = 0;
-
-    // index of selection for how to treat timestamps
-    let mut timestamp_selection: i32 = 1;
 
     let mut packet_recv_diffs: VecDeque<SystemTime> = VecDeque::new();
     let mut packet_recv_bytes: usize = 0;
@@ -396,21 +405,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
             .resizable(false)
             .collapsible(false)
             .build(|| {
-                /* Configuration Settings */
-                ui.text("Configuration");
-                ui.same_line(0.0);
-                ui.with_id("ToggleConfigSettings", || {
-                    // align the word 'Toggle' with other settings
-                    ui.text("  ");
-                    ui.same_line(0.0);
-                    // button to show or hide section
-                    if ui.small_button(im_str!("Toggle")) {
-                        config_settings_shown = !config_settings_shown;
-                    }
-                });
-                if config_settings_shown {
-                    configuration_ui(&ui, config, config_file_name, &mut imgui_str);
-                }
+                ui_config_settings(&ui, config, &mut app_state);
 
                 /* Source Selection */
                 ui.text("Input Settings");
@@ -421,10 +416,10 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     ui.same_line(0.0);
                     // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
-                        input_settings_shown = !input_settings_shown;
+                        app_state.input_settings_shown = !app_state.input_settings_shown;
                     }
                 });
-                if input_settings_shown {
+                if app_state.input_settings_shown {
                     ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0), INPUT_SETTINGS_FRAME_HEIGHT))
                         .show_borders(true)
                         .collapsible(true)
@@ -433,10 +428,11 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                                             &mut config.input_selection,
                                             &mut config.input_settings,
                                             &mut config.allowed_input_apids,
-                                            &mut imgui_str);
+                                            &mut app_state.imgui_str);
                         });
                 }
 
+                /* Output Settings */
                 ui.text("Output Settings");
                 ui.same_line(0.0);
                 ui.with_id("ToggleOutputSettings", || {
@@ -445,7 +441,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     ui.same_line(0.0);
                     // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
-                        output_settings_shown = !output_settings_shown;
+                        app_state.output_settings_shown = !app_state.output_settings_shown;
                     }
                 });
                 ui.same_line(0.0);
@@ -479,7 +475,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 }
                 ui.same_line(0.0);
                 ui.text(format!("({})", config.output_selection.len()));
-                if output_settings_shown {
+                if app_state.output_settings_shown {
                     ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0), OUTPUT_SETTINGS_FRAME_HEIGHT))
                         .movable(true)
                         .show_borders(true)
@@ -491,7 +487,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                                              &mut config.output_selection[output_index],
                                              &mut config.output_settings[output_index],
                                              &mut config.allowed_output_apids[output_index],
-                                             &mut imgui_str);
+                                             &mut app_state.imgui_str);
                         });
                 }
 
@@ -504,29 +500,29 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     ui.same_line(0.0);
                     // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
-                        ccsds_settings_shown = !ccsds_settings_shown;
+                        app_state.ccsds_settings_shown = !app_state.ccsds_settings_shown;
                     }
                 });
-                if ccsds_settings_shown {
-                    packet_settings_ui(&ui, config, &mut timestamp_selection);
+                if app_state.ccsds_settings_shown {
+                    packet_settings_ui(&ui, config, &mut app_state.timestamp_selection);
                 }
 
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
                 let mut dims = ImVec2::new(WINDOW_WIDTH - 15.0, STATS_FRAME_HEIGHT);
-                if !config_settings_shown {
+                if !app_state.config_settings_shown {
                     dims.y += CONFIG_SETTINGS_FRAME_HEIGHT;
                     dims.y += 2.0;
                 }
-                if !input_settings_shown {
+                if !app_state.input_settings_shown {
                     dims.y += INPUT_SETTINGS_FRAME_HEIGHT;
                     dims.y += 2.0;
                 }
-                if !output_settings_shown {
+                if !app_state.output_settings_shown {
                     dims.y += OUTPUT_SETTINGS_FRAME_HEIGHT;
                     dims.y += 2.0;
                 }
-                if !ccsds_settings_shown {
+                if !app_state.ccsds_settings_shown {
                     dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
                     dims.y += 2.0;
                 }
@@ -540,19 +536,13 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
                 ui.same_line(0.0);
 
-                if input_settings_shown && output_settings_shown && ccsds_settings_shown && config_settings_shown {
+                if app_state.all_shown() {
                     if ui.small_button(im_str!("Collapse All")) {
-                      input_settings_shown  = false;
-                      output_settings_shown = false;
-                      ccsds_settings_shown  = false;
-                      config_settings_shown = false;
+                      app_state.hide_all();
                     }
                 } else {
                     if ui.small_button(im_str!(" Expand All ")) {
-                      input_settings_shown  = true;
-                      output_settings_shown = true;
-                      ccsds_settings_shown  = true;
-                      config_settings_shown = true;
+                      app_state.show_all();
                     }
                 }
 
@@ -599,8 +589,8 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
                         // the current configuration is always saved when processing.
                         // This is to prevent running a configuration that is not saved anywhere.
-                        save_config(config, &config_file_name.clone());
-                        info!("Start Processing. Configuration file {}", config_file_name);
+                        save_config(config, &app_state.config_file_name.clone());
+                        info!("Start Processing. Configuration file {}", app_state.config_file_name);
 
                         sender.send(ProcessingMsg::Start(config.clone())).unwrap();
                     }
