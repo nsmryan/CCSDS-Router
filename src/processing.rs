@@ -33,6 +33,7 @@ struct TimeState {
   last_send_time: SystemTime,
 }
 
+
 fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                        read_stream_settings: StreamSettings,
                        input_selection: StreamOption,
@@ -78,7 +79,7 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                             }
                             packet.bytes.extend(bytes);
 
-                            packet_sender.send(PacketMsg::Packet( packet, recv_time )).unwrap();
+                            packet_sender.send(PacketMsg::Packet(packet, recv_time)).unwrap();
 
                             any_packets = true;
                         }
@@ -120,6 +121,8 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
     packet_sender.send(PacketMsg::StreamEnd).unwrap();
 }
 
+// Decode a timestamp from a vector of bytes into a Duration
+// The TimestampDef describes the layout of the timestamp
 fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
     let timestamp: Duration;
 
@@ -147,16 +150,18 @@ fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
         TimeSize::OneByte => num_secs = cursor.get_u8() as u64,
 
         TimeSize::TwoBytes => {
-            match timestamp_def.is_little_endian {
-                false => num_secs = cursor.get_u16_be() as u64,
-                true => num_secs = cursor.get_u16_le() as u64,
+            if timestamp_def.is_little_endian {
+                num_secs = cursor.get_u16_le() as u64;
+            } else {
+                num_secs = cursor.get_u16_be() as u64;
             }
         },
 
         TimeSize::FourBytes => {
-            match timestamp_def.is_little_endian {
-                false => num_secs = cursor.get_u32_be() as u64,
-                true => num_secs = cursor.get_u32_le() as u64,
+            if timestamp_def.is_little_endian {
+                num_secs = cursor.get_u32_le() as u64;
+            } else {
+                num_secs = cursor.get_u32_be() as u64;
             }
         },
     }
@@ -167,16 +172,18 @@ fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
         TimeSize::OneByte => num_subsecs = cursor.get_u8() as u64,
 
         TimeSize::TwoBytes => {
-            match timestamp_def.is_little_endian {
-                false => num_subsecs = cursor.get_u16_be() as u64,
-                true => num_subsecs = cursor.get_u16_le() as u64,
+            if timestamp_def.is_little_endian {
+                num_subsecs = cursor.get_u16_le() as u64;
+            } else {
+                num_subsecs = cursor.get_u16_be() as u64;
             }
         },
 
         TimeSize::FourBytes => {
-            match timestamp_def.is_little_endian {
-                false => num_subsecs = cursor.get_u32_be() as u64,
-                true => num_subsecs = cursor.get_u32_le() as u64,
+            if timestamp_def.is_little_endian {
+                num_subsecs = cursor.get_u32_le() as u64;
+            } else {
+                num_subsecs = cursor.get_u32_be() as u64;
             }
         },
     }
@@ -188,15 +195,18 @@ fn decode_timestamp(bytes: &Vec<u8>, timestamp_def: &TimestampDef) -> Duration {
     timestamp
 }
 
+// Determine the timeout we can wait before we need to act again
 fn determine_timeout(time_state: &mut TimeState,
                      packet: &Packet) -> Duration {
     let timeout: Duration;
 
     match time_state.timestamp_setting {
+        // Process as fast as possible
         TimestampSetting::Asap => {
             timeout = Duration::from_secs(0);
         }
 
+        // Replaying packets- use the packet's timestamp as an offset
         TimestampSetting::Replay => {
            let timestamp = decode_timestamp(&packet.bytes, &time_state.timestamp_def);
 
@@ -219,10 +229,14 @@ fn determine_timeout(time_state: &mut TimeState,
             }
         },
 
+        // delay for a fixed duration
         TimestampSetting::Delay(duration) => {
             timeout = duration;
         },
 
+        // Throttle packet processing to a fixed rate
+        // This is different from Delay in that it only delays if necessary to
+        // space out packets.
         TimestampSetting::Throttle(duration) => {
             match duration.checked_sub(time_state.last_send_time.elapsed().unwrap()) {
                 Some(remaining_time) => timeout = remaining_time,
@@ -246,8 +260,11 @@ fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
     ccsds_parser_config.allowed_apids = app_config.allowed_input_apids.clone();
 
     match app_config.packet_size {
-        PacketSize::Variable => ccsds_parser_config.max_packet_length = None,
-        PacketSize::Fixed(num_bytes) => ccsds_parser_config.max_packet_length = Some(num_bytes),
+        PacketSize::Variable =>
+            ccsds_parser_config.max_packet_length = None,
+
+        PacketSize::Fixed(num_bytes) =>
+            ccsds_parser_config.max_packet_length = Some(num_bytes),
     }
     ccsds_parser_config.num_header_bytes = app_config.frame_settings.prefix_bytes as u32;
     ccsds_parser_config.keep_header = app_config.frame_settings.keep_prefix;

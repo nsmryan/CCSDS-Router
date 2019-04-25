@@ -154,8 +154,7 @@ pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOp
         StreamOption::File => {
             match File::open(input_settings.file.file_name.clone()) {
                 Ok(file) => {
-                    let mut file = BufReader::new(file);
-                    result = Ok(ReadStream::File(file));
+                    result = Ok(ReadStream::File(BufReader::new(file)));
                 },
 
                 Err(e) => {
@@ -165,8 +164,9 @@ pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOp
         },
 
         StreamOption::TcpClient => {
-            let addr = SocketAddrV4::new(input_settings.tcp_client.ip.parse().unwrap(),
-            input_settings.tcp_client.port);
+            let ip_addr = input_settings.tcp_client.ip.parse().map_err(|err| format!("Could not parse ip address {}", err))?;
+            let addr = SocketAddrV4::new(ip_addr, input_settings.tcp_client.port);
+
             let stream_conn = TcpStream::connect(&addr);
             match stream_conn {
                 Ok(mut sock) => {
@@ -184,19 +184,12 @@ pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOp
             let addr = SocketAddrV4::new(input_settings.tcp_server.ip.parse().unwrap(),
             input_settings.tcp_server.port);
             let listener = TcpListener::bind(&addr).unwrap();
-            match listener.accept() {
-                Ok((mut sock, _)) => {
-                    result = Ok(ReadStream::Tcp(sock));
-                }, 
-
-                Err(e) => {
-                    result = Err(format!("TCP Server Open Error: {}", e));
-                },
-            }
+            result = listener.accept().map(|sock| ReadStream::Tcp(sock.0))
+                                      .map_err(|err| format!("TCP Server Open Error: {}", err));
         },
 
         StreamOption::Udp => {
-            let sock = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to udp address/port");
+            let sock = UdpSocket::bind("0.0.0.0:0").map_err(|_| "couldn't bind to udp address/port")?;
             result = Ok(ReadStream::Udp(sock));
         },
     }
@@ -255,17 +248,8 @@ fn read_bytes<R: Read>(reader: &mut R, bytes: &mut BytesMut, num_bytes: usize) -
    let mut byte: [u8;1] = [0; 1];
 
     for _ in 0..num_bytes {
-        match reader.read_exact(&mut byte) {
-            Ok(()) => {
-                bytes.put(byte[0]);
-            }
-
-            // NOTE this might be expected when reading TCP streams!
-            Err(e) => {
-                result = Err(format!("Stream Read Error: {}", e));
-                break;
-            }
-        }
+        reader.read_exact(&mut byte).map_err(|err| format!("Stream Read Error: {}", err))?;
+        bytes.put(byte[0]);
     }
 
     result
@@ -285,15 +269,7 @@ pub fn stream_read(input_stream: &mut ReadStream,
         ReadStream::Udp(udp_sock) => {
             // for UDP we just read a message, which must contain a CCSDS packet
             bytes.clear();
-            match udp_sock.recv(bytes) {
-                Ok(bytes_read) => {
-                    result = Ok(bytes_read);
-                },
-
-                Err(e) => {
-                    result = Err(format!("Udp Socket Read Error: {}", e));
-                },
-            }
+            result = udp_sock.recv(bytes).map_err(|err| format!("Udp Socket Read Error: {}", err));
         },
 
         ReadStream::Tcp(tcp_stream) => {
@@ -308,22 +284,23 @@ pub fn stream_read(input_stream: &mut ReadStream,
     result
 }
 
-pub fn stream_send(output_stream: &mut WriteStream, packet: &Vec<u8>) {
+pub fn stream_send(output_stream: &mut WriteStream, packet: &Vec<u8>) -> Result<(), String> {
     match output_stream {
         WriteStream::File(file) => {
-            file.write_all(&packet).unwrap();
+            file.write_all(&packet).map_err(|err| format!("IO error {}", err))
         },
 
         WriteStream::Udp((udp_sock, addr)) => {
-            udp_sock.send_to(&packet, &*addr).unwrap();
+            udp_sock.send_to(&packet, &*addr).map_err(|err| format!("IO error {}", err))
+                                             .map(|_| ())
         },
 
         WriteStream::Tcp(tcp_stream) => {
-            tcp_stream.write_all(&packet).unwrap();
+            tcp_stream.write_all(&packet).map_err(|err| format!("IO error {}", err))
         },
 
         WriteStream::Null => {
-
+            Ok(())
         },
     }
 }
