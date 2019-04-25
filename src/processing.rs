@@ -404,7 +404,6 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                 while state == ProcessingState::Processing {
                     /* Process a Packet */
-                    //let packet_msg = packet_receiver.recv_timeout(Duration::from_secs(0));
                     let packet_msg = packet_receiver.recv();
 
                     match packet_msg {

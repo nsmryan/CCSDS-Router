@@ -983,25 +983,19 @@ fn input_stream_ui(ui: &Ui,
         StreamOption::Udp => {
             ui.text(im_str!("Select Udp Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut input_settings.udp.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, &mut im_str!("Port"), &mut input_settings.udp.port);
+            ui_ip_port(ui, &mut input_settings.udp.ip, &mut input_settings.udp.port, imgui_str);
         },
 
         StreamOption::TcpClient => {
             ui.text(im_str!("Select Tcp Client Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut input_settings.tcp_client.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut input_settings.tcp_client.port);
+            ui_ip_port(ui, &mut input_settings.tcp_client.ip, &mut input_settings.tcp_client.port, imgui_str);
         },
 
         StreamOption::TcpServer => {
             ui.text(im_str!("Select Tcp Server Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut input_settings.tcp_server.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut input_settings.tcp_server.port);
+            ui_ip_port(ui, &mut input_settings.tcp_server.ip, &mut input_settings.tcp_server.port, imgui_str);
         },
     }
 
@@ -1084,10 +1078,7 @@ fn filter_apids_ui(ui: &Ui, allowed_apids: &mut Option<Vec<u16>>, imgui_str: &mu
         input_string(&ui, im_str!("Allowed APIDs"), &mut apid_list_str, imgui_str);
         apid_list.clear();
         for apid_str in apid_list_str.split(",") {
-            match apid_str.parse() {
-                Ok(apid) => apid_list.push(apid),
-                Err(_) => {},
-            }
+            apid_str.parse().map(|apid| apid_list.push(apid));
         }
         *allowed_apids = Some(apid_list);
     } else {
@@ -1096,32 +1087,13 @@ fn filter_apids_ui(ui: &Ui, allowed_apids: &mut Option<Vec<u16>>, imgui_str: &mu
 }
 
 fn load_config(file_name: &String) -> Option<AppConfig> {
-    let result: Option<AppConfig>;
+    let mut file = File::open(file_name).ok()?;
 
-    match File::open(file_name) {
-        Ok(file_opened) => {
-            let mut file = file_opened;
-            let mut config_str = String::new();
+    let mut config_str = String::new();
 
-            file.read_to_string(&mut config_str).unwrap();
+    file.read_to_string(&mut config_str).unwrap();
 
-            match serde_json::from_str(&config_str) {
-                Ok(config) => {
-                    result = Some(config);
-                }
-
-                Err(_) => {
-                    result = None;
-                }
-            }
-        },
-
-        Err(_) => {
-            result = None;
-        },
-    }
-
-    result
+    serde_json::from_str(&config_str).ok()
 }
 
 fn save_config(config: &AppConfig, config_file_name: &String) {
