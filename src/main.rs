@@ -699,6 +699,9 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
           // Fixed or variable size packets
           let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
           ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
+          if ui.is_item_hovered() {
+              ui.tooltip_text(im_str!("Packets have a fixed size- CCSDS Headers are ignored"));
+          }
           if fixed_size_packets {
               ui.same_line(0.0);
               let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
@@ -725,12 +728,13 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
               ui.tooltip_text(im_str!("Size of frame header in front of each CCSDS Primary Header"));
           }
           ui.same_line(0.0);
-          ui.input_int(im_str!(""), &mut config.frame_settings.prefix_bytes).build();
+          ui.input_int(im_str!("Header"), &mut config.frame_settings.prefix_bytes).build();
           ui.next_column();
           ui.checkbox(im_str!("Keep Header Bytes"), &mut config.frame_settings.keep_prefix);
           if ui.is_item_hovered() {
               ui.tooltip_text(im_str!("Keep frame header when forwarding packet to output"));
           }
+          config.frame_settings.prefix_bytes = max(config.frame_settings.prefix_bytes, 0);
           ui.next_column();
 
           ui.text("Footer Bytes: ");
@@ -738,12 +742,13 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
               ui.tooltip_text(im_str!("Size of frame footer in front of each CCSDS Primary Header"));
           }
           ui.same_line(0.0);
-          ui.input_int(im_str!(""), &mut config.frame_settings.postfix_bytes).build();
+          ui.input_int(im_str!("Footer"), &mut config.frame_settings.postfix_bytes).build();
           ui.next_column();
           ui.checkbox(im_str!("Keep Footer Bytes"), &mut config.frame_settings.keep_postfix);
           if ui.is_item_hovered() {
               ui.tooltip_text(im_str!("Keep frame footer when forwarding packet to output"));
           }
+          config.frame_settings.postfix_bytes = max(config.frame_settings.postfix_bytes, 0);
           ui.next_column();
 
           ui.columns(1, im_str!("Maximum Packet Size Section"), false);

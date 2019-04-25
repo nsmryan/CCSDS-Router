@@ -1,7 +1,7 @@
 {
   "input_settings": {
     "file": {
-      "file_name": "Logged_Data"
+      "file_name": "D:\\SAGE3\\Tests\\KSC PRCU 2\\SSMC 5_11_2016\\2016_05_11_00_00_00--2016_05_12_00_00_00_ssmcData.bin"
     },
     "tcp_client": {
       "port": 8000,
@@ -40,25 +40,17 @@
     "File"
   ],
   "allowed_output_apids": [
-    [
-      1,
-      3,
-      401
-    ]
+    null
   ],
-  "allowed_input_apids": [
-    1,
-    3,
-    1401,
-    411,
-    414
-  ],
+  "allowed_input_apids": null,
   "theme": "Dark",
-  "packet_size": "Variable",
+  "packet_size": {
+    "Fixed": 1024
+  },
   "little_endian_ccsds": false,
   "frame_settings": {
-    "prefix_bytes": 0,
-    "keep_prefix": false,
+    "prefix_bytes": 36,
+    "keep_prefix": true,
     "postfix_bytes": 0,
     "keep_postfix": false
   },

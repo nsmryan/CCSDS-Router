@@ -209,68 +209,38 @@ pub fn open_output_stream(output_settings: &StreamSettings, output_option: Strea
 
     match output_option {
         StreamOption::File => {
-            match File::create(output_settings.file.file_name.clone()) {
-                Ok(outfile) => {
-                    result = Ok(WriteStream::File(outfile));
-                },
-
-                Err(e) => {
-                    result = Err(format!("File open error for writing: {}", e));
-                },
-            }
+            let file_name = output_settings.file.file_name.clone();
+            let out_file = File::create(file_name).map_err(|err| format!("File open error for writing: {}", err))?;
+            result = Ok(WriteStream::File(out_file));
         },
 
         StreamOption::TcpClient => {
-            let addr = SocketAddrV4::new(output_settings.tcp_client.ip.parse().unwrap(),
-            output_settings.tcp_client.port);
-            let stream_conn = TcpStream::connect(&addr);
-            match stream_conn {
-                Ok(mut sock) => {
-                    result = Ok(WriteStream::Tcp(sock));
-                }, 
+            let ip_addr = output_settings.tcp_client.ip.parse().map_err(|err| format!("Could not parse ip address {}", err))?;
+            let addr = SocketAddrV4::new(ip_addr, output_settings.tcp_client.port);
 
-                Err(e) => {
-                    result = Err(format!("TCP Client Open Error: {}", e));
-                },
-            }
+            result = TcpStream::connect(&addr).map_err(|err| format!("TCP Client Open Error: {}", err))
+                                              .map(|sock| WriteStream::Tcp(sock));
+
         },
 
         StreamOption::TcpServer => {
-            let addr = SocketAddrV4::new(output_settings.tcp_server.ip.parse().unwrap(),
-            output_settings.tcp_server.port);
-            let listener = TcpListener::bind(&addr).unwrap();
+            let ip_addr = output_settings.tcp_server.ip.parse().map_err(|err| format!("Could not parse ip address {}", err))?;
+            let addr = SocketAddrV4::new(ip_addr, output_settings.tcp_server.port);
 
-            match listener.accept() {
-                Ok((mut sock, _)) => {
-                    result = Ok(WriteStream::Tcp(sock));
-                }, 
-
-                Err(e) => {
-                    result = Err(format!("TCP Server Open Error: {}", e));
-                },
-            }
+            result = TcpListener::bind(&addr).and_then(|listener| listener.accept())
+                                             .map(|mut sock| WriteStream::Tcp(sock.0))
+                                             .map_err(|err| format!("TCP Server Open Error: {}", err));
         },
 
         StreamOption::Udp => {
-            match output_settings.udp.ip.parse() {
-                Ok(ip_addr) => {
-                    let addr = SocketAddrV4::new(ip_addr, output_settings.udp.port);
+            let ip_addr =
+                output_settings.udp.ip.parse().map(|addr| SocketAddrV4::new(addr, output_settings.udp.port))
+                                              .map_err(|err| format!("Could not parse ip ({}): {}", output_settings.udp.ip, err))?;
 
-                    match UdpSocket::bind("0.0.0.0:0") {
-                        Ok(udp_sock) => {
-                            result = Ok(WriteStream::Udp((udp_sock, addr)));
-                        },
-
-                        Err(e) => {
-                            result = Err(format!("Could not open UDP socket for writing: {}", e));
-                        },
-                    }
-                },
-
-                Err(e) => {
-                    result = Err(format!("Could not parse ip ({}): {}", output_settings.udp.ip, e));
-                },
-            }
+            let udp_sock =
+                UdpSocket::bind("0.0.0.0:0").map_err(|err| format!("Could not open UDP socket for writing: {}", err))?;
+                                            
+            result = Ok(WriteStream::Udp((udp_sock, ip_addr)));
         },
     }
 
