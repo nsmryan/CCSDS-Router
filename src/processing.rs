@@ -133,11 +133,11 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                         }
 
                         // open streams
-                        match open_input_stream(&config.input_settings, config.input_selection) {
+                        match config.input_selection.open_input(&config.input_settings) {
                           Ok(stream) => {
                               in_stream  = stream;
 
-                              match open_output_stream(&config.output_settings, config.output_selection) {
+                              match config.output_selection.open_output(&config.output_settings) {
                                 Ok(stream) => {
                                     out_stream = stream;
                                     state = ProcessingState::Processing;

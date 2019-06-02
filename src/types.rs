@@ -347,3 +347,16 @@ impl PacketSize {
     }
 }
 
+/// The endianess enum indicates the endianness of a field of a packet
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub enum Endianness {
+    Big,
+    Little,
+}
+
+impl Default for Endianness {
+    fn default() -> Self {
+        Endianness::Big
+    }
+}
+

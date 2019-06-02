@@ -27,6 +27,138 @@ impl Default for StreamOption {
     }
 }
 
+impl StreamOption {
+    pub fn open_input(&self, input_settings: &StreamSettings) -> Result<ReadStream, String> {
+        let result;
+
+        match self {
+            StreamOption::File => {
+                match File::open(input_settings.file.file_name.clone()) {
+                    Ok(file) => {
+                        let mut file = BufReader::new(file);
+                        result = Ok(ReadStream::File(file));
+                    },
+
+                    Err(e) => {
+                        result = Err(format!("File open error for reading: {}", e));
+                    },
+                }
+            },
+
+            StreamOption::TcpClient => {
+                let addr = SocketAddrV4::new(input_settings.tcp_client.ip.parse().unwrap(),
+                input_settings.tcp_client.port);
+                let stream_conn = TcpStream::connect(&addr);
+                match stream_conn {
+                    Ok(mut sock) => {
+                        result = Ok(ReadStream::Tcp(sock));
+                    }, 
+
+                    Err(e) => {
+                        result = Err(format!("TCP Client Open Error: {}", e));
+                    },
+                }
+            },
+
+            StreamOption::TcpServer => {
+                let addr = SocketAddrV4::new(input_settings.tcp_server.ip.parse().unwrap(),
+                input_settings.tcp_server.port);
+                let listener = TcpListener::bind(&addr).unwrap();
+                match listener.accept() {
+                    Ok((mut sock, _)) => {
+                        result = Ok(ReadStream::Tcp(sock));
+                    }, 
+
+                    Err(e) => {
+                        result = Err(format!("TCP Server Open Error: {}", e));
+                    },
+                }
+            },
+
+            StreamOption::Udp => {
+                let sock = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to udp address/port");
+                result = Ok(ReadStream::Udp(sock));
+            },
+        }
+
+        result
+    }
+
+    pub fn open_output(&self, output_settings: &StreamSettings) -> Result<WriteStream, String> {
+        let result: Result<WriteStream, String>;
+
+        match self {
+            StreamOption::File => {
+                match File::create(output_settings.file.file_name.clone()) {
+                    Ok(outfile) => {
+                        result = Ok(WriteStream::File(outfile));
+                    },
+
+                    Err(e) => {
+                        result = Err(format!("File open error for writing: {}", e));
+                    },
+                }
+            },
+
+            StreamOption::TcpClient => {
+                let addr = SocketAddrV4::new(output_settings.tcp_client.ip.parse().unwrap(),
+                output_settings.tcp_client.port);
+                let stream_conn = TcpStream::connect(&addr);
+                match stream_conn {
+                    Ok(mut sock) => {
+                        result = Ok(WriteStream::Tcp(sock));
+                    }, 
+
+                    Err(e) => {
+                        result = Err(format!("TCP Client Open Error: {}", e));
+                    },
+                }
+            },
+
+            StreamOption::TcpServer => {
+                let addr = SocketAddrV4::new(output_settings.tcp_server.ip.parse().unwrap(),
+                output_settings.tcp_server.port);
+                let listener = TcpListener::bind(&addr).unwrap();
+
+                match listener.accept() {
+                    Ok((mut sock, _)) => {
+                        result = Ok(WriteStream::Tcp(sock));
+                    }, 
+
+                    Err(e) => {
+                        result = Err(format!("TCP Server Open Error: {}", e));
+                    },
+                }
+            },
+
+            StreamOption::Udp => {
+                match output_settings.udp.ip.parse() {
+                    Ok(ip_addr) => {
+                        let addr = SocketAddrV4::new(ip_addr, output_settings.udp.port);
+
+                        match UdpSocket::bind("0.0.0.0:0") {
+                            Ok(udp_sock) => {
+                                result = Ok(WriteStream::Udp((udp_sock, addr)));
+                            },
+
+                            Err(e) => {
+                                result = Err(format!("Could not open UDP socket for writing: {}", e));
+                            },
+                        }
+                    },
+
+                    Err(e) => {
+                        result = Err(format!("Could not parse ip ({}): {}", output_settings.udp.ip, e));
+                    },
+                }
+            },
+        }
+
+        result
+    }
+
+}
+
 /* Input Streams */
 /// The file settings are everything needed to open and read from a file as an input or output
 /// stream
@@ -124,19 +256,6 @@ pub enum WriteStream {
     Null,
 }
 
-/// The endianess enum indicates the endianness of a field of a packet
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
-pub enum Endianness {
-    Big,
-    Little,
-}
-
-impl Default for Endianness {
-    fn default() -> Self {
-        Endianness::Big
-    }
-}
-
 /// The packet structure contains the data for a packet, as well as the primary header
 #[derive(Debug)]
 pub struct Packet {
@@ -145,134 +264,6 @@ pub struct Packet {
 }
 
 
-pub fn open_input_stream(input_settings: &StreamSettings, input_option: StreamOption) -> Result<ReadStream, String> {
-    let result;
-
-    match input_option {
-        StreamOption::File => {
-            match File::open(input_settings.file.file_name.clone()) {
-                Ok(file) => {
-                    let mut file = BufReader::new(file);
-                    result = Ok(ReadStream::File(file));
-                },
-
-                Err(e) => {
-                    result = Err(format!("File open error for reading: {}", e));
-                },
-            }
-        },
-
-        StreamOption::TcpClient => {
-            let addr = SocketAddrV4::new(input_settings.tcp_client.ip.parse().unwrap(),
-            input_settings.tcp_client.port);
-            let stream_conn = TcpStream::connect(&addr);
-            match stream_conn {
-                Ok(mut sock) => {
-                    result = Ok(ReadStream::Tcp(sock));
-                }, 
-
-                Err(e) => {
-                    result = Err(format!("TCP Client Open Error: {}", e));
-                },
-            }
-        },
-
-        StreamOption::TcpServer => {
-            let addr = SocketAddrV4::new(input_settings.tcp_server.ip.parse().unwrap(),
-            input_settings.tcp_server.port);
-            let listener = TcpListener::bind(&addr).unwrap();
-            match listener.accept() {
-                Ok((mut sock, _)) => {
-                    result = Ok(ReadStream::Tcp(sock));
-                }, 
-
-                Err(e) => {
-                    result = Err(format!("TCP Server Open Error: {}", e));
-                },
-            }
-        },
-
-        StreamOption::Udp => {
-            let sock = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to udp address/port");
-            result = Ok(ReadStream::Udp(sock));
-        },
-    }
-
-    result
-}
-
-pub fn open_output_stream(output_settings: &StreamSettings, output_option: StreamOption) -> Result<WriteStream, String> {
-    let result: Result<WriteStream, String>;
-
-    match output_option {
-        StreamOption::File => {
-            match File::create(output_settings.file.file_name.clone()) {
-                Ok(outfile) => {
-                    result = Ok(WriteStream::File(outfile));
-                },
-
-                Err(e) => {
-                    result = Err(format!("File open error for writing: {}", e));
-                },
-            }
-        },
-
-        StreamOption::TcpClient => {
-            let addr = SocketAddrV4::new(output_settings.tcp_client.ip.parse().unwrap(),
-            output_settings.tcp_client.port);
-            let stream_conn = TcpStream::connect(&addr);
-            match stream_conn {
-                Ok(mut sock) => {
-                    result = Ok(WriteStream::Tcp(sock));
-                }, 
-
-                Err(e) => {
-                    result = Err(format!("TCP Client Open Error: {}", e));
-                },
-            }
-        },
-
-        StreamOption::TcpServer => {
-            let addr = SocketAddrV4::new(output_settings.tcp_server.ip.parse().unwrap(),
-            output_settings.tcp_server.port);
-            let listener = TcpListener::bind(&addr).unwrap();
-
-            match listener.accept() {
-                Ok((mut sock, _)) => {
-                    result = Ok(WriteStream::Tcp(sock));
-                }, 
-
-                Err(e) => {
-                    result = Err(format!("TCP Server Open Error: {}", e));
-                },
-            }
-        },
-
-        StreamOption::Udp => {
-            match output_settings.udp.ip.parse() {
-                Ok(ip_addr) => {
-                    let addr = SocketAddrV4::new(ip_addr, output_settings.udp.port);
-
-                    match UdpSocket::bind("0.0.0.0:0") {
-                        Ok(udp_sock) => {
-                            result = Ok(WriteStream::Udp((udp_sock, addr)));
-                        },
-
-                        Err(e) => {
-                            result = Err(format!("Could not open UDP socket for writing: {}", e));
-                        },
-                    }
-                },
-
-                Err(e) => {
-                    result = Err(format!("Could not parse ip ({}): {}", output_settings.udp.ip, e));
-                },
-            }
-        },
-    }
-
-    result
-}
 
 fn read_bytes<R: Read>(reader: &mut R, bytes: &mut Vec<u8>, num_bytes: usize) -> Result<usize, String> {
     let mut result: Result<usize, String> = Ok(num_bytes);
