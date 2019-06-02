@@ -71,30 +71,17 @@ impl StreamOption {
 
         match self {
             StreamOption::File => {
-                match File::create(output_settings.file.file_name.clone()) {
-                    Ok(outfile) => {
-                        result = Ok(WriteStream::File(outfile));
-                    },
-
-                    Err(e) => {
-                        result = Err(format!("File open error for writing: {}", e));
-                    },
-                }
+                result = File::create(output_settings.file.file_name.clone())
+                         .map(|outfile| WriteStream::File(outfile))
+                         .map_err(|err| format!("File open error for writing: {}", err));
             },
 
             StreamOption::TcpClient => {
                 let addr = SocketAddrV4::new(output_settings.tcp_client.ip.parse().unwrap(),
                 output_settings.tcp_client.port);
-                let stream_conn = TcpStream::connect(&addr);
-                match stream_conn {
-                    Ok(mut sock) => {
-                        result = Ok(WriteStream::Tcp(sock));
-                    }, 
-
-                    Err(e) => {
-                        result = Err(format!("TCP Client Open Error: {}", e));
-                    },
-                }
+                result = TcpStream::connect(&addr)
+                         .map(|sock| WriteStream::Tcp(sock))
+                         .map_err(|err| format!("TCP Client Open Error: {}", err));
             },
 
             StreamOption::TcpServer => {
@@ -102,15 +89,9 @@ impl StreamOption {
                 output_settings.tcp_server.port);
                 let listener = TcpListener::bind(&addr).unwrap();
 
-                match listener.accept() {
-                    Ok((mut sock, _)) => {
-                        result = Ok(WriteStream::Tcp(sock));
-                    }, 
-
-                    Err(e) => {
-                        result = Err(format!("TCP Server Open Error: {}", e));
-                    },
-                }
+                result = listener.accept()
+                                 .map(|(sock, _)| WriteStream::Tcp(sock))
+                                 .map_err(|err| format!("TCP Server Open Error: {}", err));
             },
 
             StreamOption::Udp => {
@@ -120,8 +101,7 @@ impl StreamOption {
 
                         result = UdpSocket::bind("0.0.0.0:0")
                                  .map(|udp_sock| WriteStream::Udp((udp_sock, addr)))
-                                 .map_err(|err| format!("Could not open UDP socket for writing: {}", e));
-                        }
+                                 .map_err(|err| format!("Could not open UDP socket for writing: {}", err));
                     },
 
                     Err(e) => {
@@ -133,7 +113,6 @@ impl StreamOption {
 
         result
     }
-
 }
 
 /* Input Streams */
