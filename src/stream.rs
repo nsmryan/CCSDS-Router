@@ -118,14 +118,9 @@ impl StreamOption {
                     Ok(ip_addr) => {
                         let addr = SocketAddrV4::new(ip_addr, output_settings.udp.port);
 
-                        match UdpSocket::bind("0.0.0.0:0") {
-                            Ok(udp_sock) => {
-                                result = Ok(WriteStream::Udp((udp_sock, addr)));
-                            },
-
-                            Err(e) => {
-                                result = Err(format!("Could not open UDP socket for writing: {}", e));
-                            },
+                        result = UdpSocket::bind("0.0.0.0:0")
+                                 .map(|udp_sock| WriteStream::Udp((udp_sock, addr)))
+                                 .map_err(|err| format!("Could not open UDP socket for writing: {}", e));
                         }
                     },
 
