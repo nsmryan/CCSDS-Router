@@ -1,7 +1,7 @@
 {
   "input_settings": {
     "file": {
-      "file_name": "Logged_Data"
+      "file_name": "D:\\SAGE3\\Tests\\KSC PRCU 2\\SSMC 5_11_2016\\2016_05_11_00_00_00--2016_05_12_00_00_00_ssmcData.bin"
     },
     "tcp_client": {
       "port": 8000,
@@ -17,42 +17,51 @@
     }
   },
   "input_selection": "File",
-  "output_settings": {
-    "file": {
-      "file_name": "data.bin"
-    },
-    "tcp_client": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
-    "tcp_server": {
-      "port": 8000,
-      "ip": "127.0.0.1"
-    },
-    "udp": {
-      "port": 8001,
-      "ip": "127.0.0.1"
+  "output_settings": [
+    {
+      "file": {
+        "file_name": "data.bin"
+      },
+      "tcp_client": {
+        "port": 8000,
+        "ip": "127.0.0.1"
+      },
+      "tcp_server": {
+        "port": 8000,
+        "ip": "127.0.0.1"
+      },
+      "udp": {
+        "port": 8001,
+        "ip": "127.0.0.1"
+      }
     }
-  },
-  "output_selection": "File",
-  "allowed_apids": null,
+  ],
+  "output_selection": [
+    "File"
+  ],
+  "allowed_output_apids": [
+    null
+  ],
+  "allowed_input_apids": null,
   "theme": "Dark",
-  "packet_size": "Variable",
-  "little_endian_ccsds": true,
+  "packet_size": {
+    "Fixed": 1024
+  },
+  "little_endian_ccsds": false,
   "frame_settings": {
-    "prefix_bytes": 0,
-    "keep_prefix": false,
+    "prefix_bytes": 36,
+    "keep_prefix": true,
     "postfix_bytes": 0,
     "keep_postfix": false
   },
-  "max_length_bytes": 4096,
+  "max_length_bytes": 65542,
   "timestamp_setting": "Asap",
   "timestamp_def": {
     "offset": 0,
-    "num_bytes_seconds": "FourBytes",
-    "num_bytes_subseconds": "FourBytes",
-    "subsecond_resolution": 0.000001,
-    "is_little_endian": true
+    "num_bytes_seconds": "ZeroBytes",
+    "num_bytes_subseconds": "ZeroBytes",
+    "subsecond_resolution": 0.0,
+    "is_little_endian": false
   },
-  "auto_start": true
+  "auto_start": false
 }

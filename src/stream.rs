@@ -2,10 +2,13 @@ use std::fs::File;
 use std::io::{Read, BufReader};
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream, UdpSocket, SocketAddrV4};
+use std::time::Duration;
+use std::borrow::BorrowMut;
 
-use ccsds_primary_header::*;
+use bytes::BytesMut;
+use bytes::BufMut;
 
-use types::*;
+use ccsds_primary_header::primary_header::*;
 
 
 /// The stream option is the input/output stream type
@@ -226,6 +229,38 @@ pub enum ReadStream {
     Null,
 }
 
+impl ReadStream {
+    pub fn stream_read(&mut self,
+                       bytes: &mut BytesMut,
+                       num_bytes: usize) -> Result<usize, String> {
+
+        let result: Result<usize, String>;
+
+        match self {
+            ReadStream::File(ref mut file) => {
+                result = read_bytes(file, bytes, num_bytes);
+            },
+
+            ReadStream::Udp(udp_sock) => {
+                // for UDP we just read a message, which must contain a CCSDS packet
+                bytes.clear();
+                result = udp_sock.recv(bytes).map_err(|err| format!("Udp Socket Read Error: {}", err));
+            },
+
+            ReadStream::Tcp(tcp_stream) => {
+                result = read_bytes(tcp_stream, bytes, num_bytes);
+            },
+
+            ReadStream::Null => {
+                result = Err("Reading a Null Stream! This should not happen!".to_string());
+            },
+        }
+
+        result
+    }
+}
+
+
 /// A read stream a sink of CCSDS packets
 #[derive(Debug)]
 pub enum WriteStream {
@@ -235,171 +270,48 @@ pub enum WriteStream {
     Null,
 }
 
+impl WriteStream {
+    pub fn stream_send(&mut self, packet: &Vec<u8>) -> Result<(), String> {
+        match self {
+            WriteStream::File(file) => {
+                file.write_all(&packet).map_err(|err| format!("IO error {}", err))
+            },
+
+            WriteStream::Udp((udp_sock, addr)) => {
+                udp_sock.send_to(&packet, &*addr)
+                        .map_err(|err| format!("IO error {}", err))
+                        .map(|_| ())
+            },
+
+            WriteStream::Tcp(tcp_stream) => {
+                tcp_stream.write_all(&packet).map_err(|err| format!("IO error {}", err))
+            },
+
+            WriteStream::Null => {
+                Ok(())
+            },
+        }
+    }
+}
+
+
 /// The packet structure contains the data for a packet, as well as the primary header
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Packet {
     pub header: CcsdsPrimaryHeader,
     pub bytes:  Vec<u8>,
 }
 
 
+fn read_bytes<R: Read>(reader: &mut R, bytes: &mut BytesMut, num_bytes: usize) -> Result<usize, String> {
+    let current_len = bytes.len();
 
-fn read_bytes<R: Read>(reader: &mut R, bytes: &mut Vec<u8>, num_bytes: usize) -> Result<usize, String> {
-    let mut result: Result<usize, String> = Ok(num_bytes);
+    bytes.reserve(num_bytes);
 
-   // NOTE awkward way to read. should get a slice of the vector?
-   let mut byte: [u8;1] = [0; 1];
+    let mut_bytes: &mut [u8] = bytes.borrow_mut();
+    reader.read_exact(&mut mut_bytes[current_len..(current_len + num_bytes)])
+          .map_err(|err| format!("Stream Read Error: {}", err))?;
 
-    for _ in 0..num_bytes {
-        match reader.read_exact(&mut byte) {
-            Ok(()) => {
-                bytes.push(byte[0]);
-            }
-
-            Err(e) => {
-                result = Err(format!("Stream Read Error: {}", e));
-                break;
-            }
-        }
-    }
-
-    result
-}
-
-// read a packet from a stream (a file or a TCP stream)
-fn read_packet_from_reader<R>(reader: &mut R,
-                              packet: &mut Packet,
-                              endianness: Endianness,
-                              packet_size: PacketSize,
-                              frame_settings: &FrameSettings) -> Result<usize, String>
-    where R: Read {
-
-    let mut header_bytes: [u8; CCSDS_PRI_HEADER_SIZE_BYTES as usize] = [0; CCSDS_PRI_HEADER_SIZE_BYTES as usize];
-
-    let mut packet_length_bytes = 0;
-
-    let data_size;
-
-    packet.bytes.clear();
-
-    read_bytes(reader, &mut packet.bytes, frame_settings.prefix_bytes as usize)?;
-
-    // if we do not keep the prefix, clear the packet before continuing
-    if !frame_settings.keep_prefix {
-        packet.bytes.clear();
-    } else {
-        packet_length_bytes += frame_settings.prefix_bytes;
-    }
-
-    // read enough bytes for a header
-    match reader.read_exact(&mut header_bytes) {
-        Err(e) => return Err(format!("Stream Read Error: {}", e)),
-
-         _ => {},
-    }
-
-    packet_length_bytes += CCSDS_PRI_HEADER_SIZE_BYTES as i32;
-
-    // put header in packet buffer
-    packet.bytes.extend_from_slice(&header_bytes);
-
-    // if the header is laid out little endian, swap to big endian
-    // before using as a CCSDS header
-    if endianness == Endianness::Little {
-        for byte_index in 0..3 {
-            let tmp = header_bytes[byte_index * 2];
-            header_bytes[byte_index * 2] = header_bytes[byte_index * 2 + 1];
-            header_bytes[byte_index * 2 + 1] = tmp;
-        }
-    }
-    packet.header = CcsdsPrimaryHeader::new(header_bytes);
-
-    // the packet length is either in the header, or it is given by the caller
-    let packet_length = 
-        match packet_size {
-            PacketSize::Variable => packet.header.packet_length(),
-            PacketSize::Fixed(num_bytes) => num_bytes,
-        };
-
-    data_size = packet_length - CCSDS_PRI_HEADER_SIZE_BYTES;
-
-    // read the data section of the packet
-    read_bytes(reader, &mut packet.bytes, data_size as usize)?;
-
-    packet_length_bytes += data_size as i32;
-
-    // read the data section of the packet
-    read_bytes(reader, &mut packet.bytes, frame_settings.postfix_bytes as usize)?;
-
-    // if we are not keeping the postfix bytes, truncate to the previous
-    // size.
-    if !frame_settings.keep_postfix {
-        packet.bytes.truncate(packet_length_bytes as usize);
-    } else {
-        // otherwise keep the postfix bytes
-        packet_length_bytes += frame_settings.postfix_bytes as i32;
-    }
-
-    Ok(packet_length_bytes as usize)
-}
-
-pub fn stream_read_packet(input_stream: &mut ReadStream,
-                          packet: &mut Packet,
-                          endianness: Endianness,
-                          packet_size: PacketSize,
-                          frame_settings: &FrameSettings) -> Result<usize, String> {
-
-    let result: Result<usize, String>;
-
-    match input_stream {
-        ReadStream::File(ref mut file) => {
-            result = read_packet_from_reader(file, packet, endianness, packet_size, frame_settings);
-        },
-
-        ReadStream::Udp(udp_sock) => {
-            // for UDP we just read a message, which must contain a CCSDS packet
-            // NOTE currently ignores packet size
-            packet.bytes.clear();
-            match udp_sock.recv(&mut packet.bytes) {
-                Ok(bytes_read) => {
-                    result = Ok(bytes_read);
-                },
-
-                Err(e) => {
-                    result = Err(format!("Udp Socket Read Error: {}", e));
-                },
-            }
-        },
-
-        ReadStream::Tcp(tcp_stream) => {
-            result = read_packet_from_reader(tcp_stream, packet, endianness, packet_size, frame_settings);
-        },
-
-        ReadStream::Null => {
-            result = Err("Reading a Null Stream! This should not happen!".to_string());
-        },
-    }
-
-    result
-}
-
-pub fn stream_send(output_stream: &mut WriteStream, packet: &Vec<u8>) {
-    match output_stream {
-        WriteStream::File(file) => {
-            file.write_all(&packet).unwrap();
-        },
-
-        WriteStream::Udp((udp_sock, addr)) => {
-            udp_sock.send_to(&packet, &*addr).unwrap();
-        },
-
-        WriteStream::Tcp(tcp_stream) => {
-            tcp_stream.write_all(&packet).unwrap();
-        },
-
-        WriteStream::Null => {
-
-        },
-    }
+    Ok(num_bytes)
 }
 

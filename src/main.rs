@@ -65,7 +65,6 @@ extern crate floating_duration;
 #[macro_use] extern crate structopt;
 
 extern crate hexdump;
-extern crate itertools;
 
 extern crate ctrlc;
 
@@ -85,6 +84,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::fs::File;
 use std::fs::create_dir;
 use std::path::PathBuf;
+use std::cmp::{min, max};
 
 use simplelog::*;
 
@@ -95,7 +95,6 @@ use floating_duration::TimeAsFloat;
 use structopt::*;
 
 use hexdump::*;
-use itertools::*;
 
 use imgui::*;
 
@@ -113,16 +112,16 @@ use style::*;
 
 
 /// Window width given to SDL
-const WINDOW_WIDTH:  f32 = 840.0;
+const WINDOW_WIDTH:  f32 = 680.0;
 
 /// Window height given to SDL
 const WINDOW_HEIGHT: f32 = 740.0;
 
-const STATS_FRAME_HEIGHT: f32 = 205.0;
+const STATS_FRAME_HEIGHT: f32 = 170.0;
 
 const CONFIG_SETTINGS_FRAME_HEIGHT: f32 = 50.0;
 
-const INPUT_SETTINGS_FRAME_HEIGHT: f32 = 65.0;
+const INPUT_SETTINGS_FRAME_HEIGHT: f32 = 100.0;
 
 const OUTPUT_SETTINGS_FRAME_HEIGHT: f32 = 100.0;
 
@@ -183,6 +182,17 @@ fn main() {
           // plus the size of a CCSDS Primary header, plus 1.
           config.max_length_bytes = 65535 + 6 + 1;
       },
+    }
+
+    // make sure there is at least one of the output settings
+    if config.output_settings.len() == 0 {
+        config.output_settings = vec!(Default::default());
+    }
+    if config.output_selection.len() == 0 {
+        config.output_selection = vec!(Default::default());
+    }
+    if config.allowed_output_apids.len() == 0 {
+        config.allowed_output_apids = vec!(None);
     }
 
     // Spawn processing thread
@@ -250,6 +260,106 @@ fn main() {
     info!("Exiting");
 }
 
+fn ui_config_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState) {
+    ui.same_line(0.0);
+    ui.with_id("ToggleConfigSettings", || {
+        // align the word 'Toggle' with other settings
+        ui.text("  ");
+        ui.same_line(0.0);
+        // button to show or hide section
+        if ui.small_button(im_str!("Toggle")) {
+            app_state.config_settings_shown = !app_state.config_settings_shown;
+        }
+    });
+    if app_state.config_settings_shown {
+        configuration_ui(&ui, config, &mut app_state.config_file_name, &mut app_state.imgui_str);
+    }
+}
+
+fn ui_input_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState) {
+    ui.same_line(0.0);
+    ui.with_id("ToggleInputSettings", || {
+        // align the word 'Toggle' with other settings
+        ui.text(" ");
+        ui.same_line(0.0);
+        // button to show or hide section
+        if ui.small_button(im_str!("Toggle")) {
+            app_state.input_settings_shown = !app_state.input_settings_shown;
+        }
+    });
+    if app_state.input_settings_shown {
+        ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0), INPUT_SETTINGS_FRAME_HEIGHT))
+            .show_borders(true)
+            .collapsible(true)
+            .build(|| {
+                input_stream_ui(&ui,
+                                &mut config.input_selection,
+                                &mut config.input_settings,
+                                &mut config.allowed_input_apids,
+                                &mut app_state.imgui_str);
+            });
+    }
+}
+
+fn ui_output_settings(ui: &Ui, config: &mut AppConfig, app_state: &mut AppState, output_index: &mut usize) {
+    ui.same_line(0.0);
+    ui.with_id("ToggleOutputSettings", || {
+        // align the word 'Toggle' with other settings
+        ui.text("");
+        ui.same_line(0.0);
+        // button to show or hide section
+        if ui.small_button(im_str!("Toggle")) {
+            app_state.output_settings_shown = !app_state.output_settings_shown;
+        }
+    });
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("New")) {
+        config.output_selection.push(Default::default());
+        config.output_settings.push(Default::default());
+        config.allowed_output_apids.push(None);
+        *output_index += 1;
+    }
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("Prev")) {
+        if *output_index > 0 {
+            *output_index -= 1;
+        }
+    }
+    ui.same_line(0.0);
+    ui.text(format!("{}", *output_index));
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("Next")) {
+        *output_index = min(*output_index + 1, config.output_selection.len() - 1);
+    }
+    ui.same_line(0.0);
+    if ui.small_button(im_str!("Delete")) {
+        // only allow deletion if this is not the last output
+        if config.output_selection.len() > 1 {
+            config.output_selection.remove(*output_index);
+            config.output_settings.remove(*output_index);
+            config.allowed_output_apids.remove(*output_index);
+            *output_index = min(*output_index, config.output_selection.len() - 1);
+        }
+    }
+    ui.same_line(0.0);
+    ui.text(format!("({})", config.output_selection.len()));
+    if app_state.output_settings_shown {
+        ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0), OUTPUT_SETTINGS_FRAME_HEIGHT))
+            .movable(true)
+            .show_borders(true)
+            .collapsible(true)
+            .show_scrollbar(true)
+            .always_show_vertical_scroll_bar(true)
+            .build(|| {
+                output_stream_ui(&ui,
+                                 &mut config.output_selection[*output_index],
+                                 &mut config.output_settings[*output_index],
+                                 &mut config.allowed_output_apids[*output_index],
+                                 &mut app_state.imgui_str);
+            });
+    }
+}
+
 fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Receiver<GuiMessage>, sender: Sender<ProcessingMsg>) {
     let sdl_context = sdl2::init().unwrap();
     let video = sdl_context.video().unwrap();
@@ -280,9 +390,9 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
+    let mut app_state: AppState = AppState::new();
+    app_state.config_file_name = config_file_name.clone();
 
-    // buffer for imgui strings
-    let mut imgui_str = ImString::with_capacity(256);
 
     /* Application State */
     let mut processing_stats: ProcessingStats = Default::default();
@@ -291,15 +401,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
     let mut paused = false;
     let mut processing = config.auto_start;
 
-    let mut input_settings_shown = true;
-    let mut output_settings_shown = true;
-    let mut ccsds_settings_shown = true;
-    let mut config_settings_shown = true;
-
-    let mut packets_dropped = 0;
-
-    // index of selection for how to treat timestamps
-    let mut timestamp_selection: i32 = 1;
+    let mut output_index = 0;
 
     let mut packet_recv_diffs: VecDeque<SystemTime> = VecDeque::new();
     let mut packet_recv_bytes: usize = 0;
@@ -351,7 +453,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                 },
 
                 GuiMessage::PacketDropped(header) => {
-                    packets_dropped += 1;
+                    processing_stats.packets_dropped += 1;
                 },
 
                 GuiMessage::Finished => {
@@ -364,7 +466,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
             }
         }
 
-        if packet_recv_diffs.len() > 0  &&
+        if packet_recv_diffs.len() > 0 &&
               SystemTime::now().duration_since(*packet_recv_diffs.get(0).unwrap()).unwrap() > Duration::from_secs(1) {
             processing_stats.packets_per_second = packet_recv_diffs.len();
             processing_stats.bytes_per_second = packet_recv_bytes;
@@ -384,65 +486,16 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
             .resizable(false)
             .collapsible(false)
             .build(|| {
-                /* Configuration Settings */
                 ui.text("Configuration");
-                ui.same_line(0.0);
-                ui.with_id("ToggleConfigSettings", || {
-                    // align the word 'Toggle' with other settings
-                    ui.text("  ");
-                    ui.same_line(0.0);
-                    // button to show or hide section
-                    if ui.small_button(im_str!("Toggle")) {
-                        config_settings_shown = !config_settings_shown;
-                    }
-                });
-                if config_settings_shown {
-                    configuration_ui(&ui, config, config_file_name, &mut imgui_str);
-                }
+                ui_config_settings(&ui, config, &mut app_state);
 
                 /* Source Selection */
                 ui.text("Input Settings");
-                ui.same_line(0.0);
-                ui.with_id("ToggleInputSettings", || {
-                    // align the word 'Toggle' with other settings
-                    ui.text(" ");
-                    ui.same_line(0.0);
-                    // button to show or hide section
-                    if ui.small_button(im_str!("Toggle")) {
-                        input_settings_shown = !input_settings_shown;
-                    }
-                });
-                if input_settings_shown {
-                    ui.child_frame(im_str!("SelectInputType"), ((WINDOW_WIDTH - 15.0), INPUT_SETTINGS_FRAME_HEIGHT))
-                        .show_borders(true)
-                        .collapsible(true)
-                        .build(|| {
-                            input_stream_ui(&ui, &mut config.input_selection, &mut config.input_settings, &mut imgui_str);
-                        });
-                }
+                ui_input_settings(&ui, config, &mut app_state);
 
+                /* Output Settings */
                 ui.text("Output Settings");
-                ui.same_line(0.0);
-                ui.with_id("ToggleOutputSettings", || {
-                    // align the word 'Toggle' with other settings
-                    ui.text("");
-                    ui.same_line(0.0);
-                    // button to show or hide section
-                    if ui.small_button(im_str!("Toggle")) {
-                        output_settings_shown = !output_settings_shown;
-                    }
-                });
-                if output_settings_shown {
-                    ui.child_frame(im_str!("SelectOutputType"), ((WINDOW_WIDTH - 15.0), OUTPUT_SETTINGS_FRAME_HEIGHT))
-                        .movable(true)
-                        .show_borders(true)
-                        .collapsible(true)
-                        .show_scrollbar(true)
-                        .always_show_vertical_scroll_bar(true)
-                        .build(|| {
-                            output_stream_ui(&ui, &mut config.output_selection, &mut config.output_settings, &mut config.allowed_apids, &mut imgui_str);
-                        });
-                }
+                ui_output_settings(&ui, config, &mut app_state, &mut output_index);
 
                 /* CCSDS Packet Settings */
                 ui.text("CCSDS Settings");
@@ -453,33 +506,16 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     ui.same_line(0.0);
                     // button to show or hide section
                     if ui.small_button(im_str!("Toggle")) {
-                        ccsds_settings_shown = !ccsds_settings_shown;
+                        app_state.ccsds_settings_shown = !app_state.ccsds_settings_shown;
                     }
                 });
-                if ccsds_settings_shown {
-                    packet_settings_ui(&ui, config, &mut timestamp_selection);
+                if app_state.ccsds_settings_shown {
+                    packet_settings_ui(&ui, config, &mut app_state.timestamp_selection);
                 }
 
                 /* Packet Statistics */
                 ui.text("Packet Statistics");
-                let mut dims = ImVec2::new(WINDOW_WIDTH - 15.0, STATS_FRAME_HEIGHT);
-                if !config_settings_shown {
-                    dims.y += CONFIG_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                if !input_settings_shown {
-                    dims.y += INPUT_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                if !output_settings_shown {
-                    dims.y += OUTPUT_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                if !ccsds_settings_shown {
-                    dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
-                    dims.y += 2.0;
-                }
-                packet_statistics_ui(&ui, &processing_stats, packets_dropped, dims);
+                packet_statistics_ui(&ui, &processing_stats, &app_state, processing_stats.packets_dropped);
 
                 /* Control Buttons */
                 if ui.small_button(im_str!("Clear Stats")) {
@@ -489,19 +525,13 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
                 ui.same_line(0.0);
 
-                if input_settings_shown && output_settings_shown && ccsds_settings_shown && config_settings_shown {
+                if app_state.all_shown() {
                     if ui.small_button(im_str!("Collapse All")) {
-                      input_settings_shown  = false;
-                      output_settings_shown = false;
-                      ccsds_settings_shown  = false;
-                      config_settings_shown = false;
+                      app_state.hide_all();
                     }
                 } else {
                     if ui.small_button(im_str!(" Expand All ")) {
-                      input_settings_shown  = true;
-                      output_settings_shown = true;
-                      ccsds_settings_shown  = true;
-                      config_settings_shown = true;
+                      app_state.show_all();
                     }
                 }
 
@@ -548,8 +578,8 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
 
                         // the current configuration is always saved when processing.
                         // This is to prevent running a configuration that is not saved anywhere.
-                        save_config(config, &config_file_name.clone());
-                        info!("Start Processing. Configuration file {}", config_file_name);
+                        save_config(config, &app_state.config_file_name.clone());
+                        info!("Start Processing. Configuration file {}", app_state.config_file_name);
 
                         sender.send(ProcessingMsg::Start(config.clone())).unwrap();
                     }
@@ -648,6 +678,9 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
           // Fixed or variable size packets
           let mut fixed_size_packets: bool = config.packet_size != PacketSize::Variable;
           ui.checkbox(im_str!("Fixed Size Packets"), &mut fixed_size_packets);
+          if ui.is_item_hovered() {
+              ui.tooltip_text(im_str!("Packets have a fixed size- CCSDS Headers are ignored"));
+          }
           if fixed_size_packets {
               ui.same_line(0.0);
               let mut packet_size: i32 = config.packet_size.num_bytes() as i32;
@@ -674,12 +707,13 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
               ui.tooltip_text(im_str!("Size of frame header in front of each CCSDS Primary Header"));
           }
           ui.same_line(0.0);
-          ui.input_int(im_str!(""), &mut config.frame_settings.prefix_bytes).build();
+          ui.input_int(im_str!("Header"), &mut config.frame_settings.prefix_bytes).build();
           ui.next_column();
           ui.checkbox(im_str!("Keep Header Bytes"), &mut config.frame_settings.keep_prefix);
           if ui.is_item_hovered() {
               ui.tooltip_text(im_str!("Keep frame header when forwarding packet to output"));
           }
+          config.frame_settings.prefix_bytes = max(config.frame_settings.prefix_bytes, 0);
           ui.next_column();
 
           ui.text("Footer Bytes: ");
@@ -687,12 +721,13 @@ fn packet_settings_ui(ui: &Ui, config: &mut AppConfig, timestamp_selection: &mut
               ui.tooltip_text(im_str!("Size of frame footer in front of each CCSDS Primary Header"));
           }
           ui.same_line(0.0);
-          ui.input_int(im_str!(""), &mut config.frame_settings.postfix_bytes).build();
+          ui.input_int(im_str!("Footer"), &mut config.frame_settings.postfix_bytes).build();
           ui.next_column();
           ui.checkbox(im_str!("Keep Footer Bytes"), &mut config.frame_settings.keep_postfix);
           if ui.is_item_hovered() {
               ui.tooltip_text(im_str!("Keep frame footer when forwarding packet to output"));
           }
+          config.frame_settings.postfix_bytes = max(config.frame_settings.postfix_bytes, 0);
           ui.next_column();
 
           ui.columns(1, im_str!("Maximum Packet Size Section"), false);
@@ -795,7 +830,25 @@ fn packet_summary_ui(ui: &Ui, packet_stats: &PacketStats) {
     }
 }
 
-fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dropped: usize, dims: ImVec2) {
+fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, app_state: &AppState, packets_dropped: usize) {
+    let mut dims = ImVec2::new(WINDOW_WIDTH - 15.0, STATS_FRAME_HEIGHT);
+    if !app_state.config_settings_shown {
+        dims.y += CONFIG_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+    if !app_state.input_settings_shown {
+        dims.y += INPUT_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+    if !app_state.output_settings_shown {
+        dims.y += OUTPUT_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+    if !app_state.ccsds_settings_shown {
+        dims.y += CCSDS_SETTINGS_FRAME_HEIGHT;
+        dims.y += 2.0;
+    }
+
     ui.child_frame(im_str!("Apid Statistics"), dims)
         .show_borders(true)
         .collapsible(true)
@@ -817,67 +870,54 @@ fn packet_statistics_ui(ui: &Ui, processing_stats: &ProcessingStats, packets_dro
 
             ui.separator();
 
-            ui.columns(10, im_str!("PacketStats"), true);
+            ui.columns(5, im_str!("PacketStats"), true);
+
+            ui.text("       Apid: ");
+            ui.next_column();
+            ui.text("    Count: ");
+            ui.next_column();
+            ui.text("  Total Bytes: ");
+            ui.next_column();
+            ui.text("   Byte Len:");
+            ui.next_column();
+            ui.text("   Last Seq:");
+            ui.separator();
 
             for packet_stats in processing_stats.packet_history.values() {
-                ui.text("Apid: ");
-                packet_summary_ui(ui, &packet_stats);
                 ui.next_column();
-                ui.text(format!("{:>5}", &packet_stats.apid.to_string()));
+                ui.text(format!("      {:>5}", &packet_stats.apid.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
-                ui.text("Count: ");
-                packet_summary_ui(ui, &packet_stats);
-                ui.next_column();
-                ui.text(format!("{:>5}", packet_stats.packet_count.to_string()));
+                ui.text(format!("    {:>5}", packet_stats.packet_count.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
-                ui.text("Total Bytes: ");
-                packet_summary_ui(ui, &packet_stats);
-                ui.next_column();
-                ui.text(format!("{:>9}", &packet_stats.byte_count.to_string()));
+                ui.text(format!("  {:>9}", &packet_stats.byte_count.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
-                ui.text("Byte Len:");
-                packet_summary_ui(ui, &packet_stats);
-                ui.next_column();
-                ui.text(format!("{:>5}", &packet_stats.last_len.to_string()));
+                ui.text(format!("    {:>5}", &packet_stats.last_len.to_string()));
                 packet_summary_ui(ui, &packet_stats);
 
                 ui.next_column();
-                ui.text("Last Seq:");
+                ui.text(format!("    {:>5}", &packet_stats.last_seq.to_string()));
                 packet_summary_ui(ui, &packet_stats);
-                ui.next_column();
-                ui.text(format!("{:>5}", &packet_stats.last_seq.to_string()));
-                packet_summary_ui(ui, &packet_stats);
-
-                ui.next_column();
             }
 
             if processing_stats.packet_history.len() > 0 {
                 ui.separator();
 
-                ui.text("Total:");
-
                 ui.next_column();
-                ui.text(processing_stats.packet_history.len().to_string());
-
-                ui.next_column();
-                ui.text("Total");
+                ui.text(format!("         {}", processing_stats.packet_history.len()));
 
                 ui.next_column();
                 let total_count = processing_stats.packet_history.values().map(|stats: &PacketStats| stats.packet_count as u32).sum::<u32>();
-                ui.text(format!("{:>5}", total_count));
+                ui.text(format!("    {:>5}", total_count));
 
                 ui.next_column();
-                ui.text("Total:");
-
-                ui.next_column();
-                let total_byte_count = processing_stats.packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u32>();
-                ui.text(format!("{:>9}", total_byte_count));
+                let total_byte_count = processing_stats.packet_history.values().map(|stats: &PacketStats| stats.byte_count).sum::<u64>();
+                ui.text(format!("  {:>9}", total_byte_count));
 
                 ui.next_column();
             }
@@ -916,7 +956,11 @@ fn input_string(ui: &Ui, label: &ImStr, string: &mut String, imgui_str: &mut ImS
     string.push_str(&imgui_str.to_str());
 }
 
-fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut StreamSettings, imgui_str: &mut ImString) {
+fn input_stream_ui(ui: &Ui,
+                   selection: &mut StreamOption,
+                   input_settings: &mut StreamSettings,
+                   allowed_apids: &mut Option<Vec<u16>>,
+                   imgui_str: &mut ImString) {
     let mut input_selection: i32 = *selection as i32;
 
     ui.columns(4, im_str!("SelectInputType"), false);
@@ -930,8 +974,7 @@ fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut S
 
     *selection = num::FromPrimitive::from_i32(input_selection).unwrap();
 
-    ui.columns(1, im_str!("default"), false);
-    match selection {
+    ui.columns(1, im_str!("default"), false); match selection {
         StreamOption::File => {
             ui.text(im_str!("Select Input File Parameters:"));
             input_string(&ui, im_str!("File Name"), &mut input_settings.file.file_name, imgui_str);
@@ -940,33 +983,35 @@ fn input_stream_ui(ui: &Ui, selection: &mut StreamOption, input_settings: &mut S
         StreamOption::Udp => {
             ui.text(im_str!("Select Udp Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut input_settings.udp.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, &mut im_str!("Port"), &mut input_settings.udp.port);
+            ui_ip_port(ui, &mut input_settings.udp.ip, &mut input_settings.udp.port, imgui_str);
         },
 
         StreamOption::TcpClient => {
             ui.text(im_str!("Select Tcp Client Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut input_settings.tcp_client.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut input_settings.tcp_client.port);
+            ui_ip_port(ui, &mut input_settings.tcp_client.ip, &mut input_settings.tcp_client.port, imgui_str);
         },
 
         StreamOption::TcpServer => {
             ui.text(im_str!("Select Tcp Server Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut input_settings.tcp_server.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut input_settings.tcp_server.port);
+            ui_ip_port(ui, &mut input_settings.tcp_server.ip, &mut input_settings.tcp_server.port, imgui_str);
         },
     }
+
+    filter_apids_ui(ui, allowed_apids, imgui_str);
+}
+
+fn ui_ip_port(ui: &Ui, ip: &mut String, port: &mut u16, imgui_str: &mut ImString) {
+    input_string(ui, im_str!("IP"), ip, imgui_str);
+    ui.next_column();
+    input_port(ui, &mut im_str!("Port"), port);
 }
 
 fn output_stream_ui(ui: &Ui,
                     selection: &mut StreamOption,
                     output_settings: &mut StreamSettings,
-                    allowed_apids: &mut Option<Vec<u16>>,
+                    allowed_output_apids: &mut Option<Vec<u16>>,
                     imgui_str: &mut ImString) {
     let mut input_selection: i32 = *selection as i32;
 
@@ -993,29 +1038,27 @@ fn output_stream_ui(ui: &Ui,
         StreamOption::Udp => {
             ui.text(im_str!("Select Udp Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut output_settings.udp.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, &mut im_str!("Port"), &mut output_settings.udp.port);
+            ui_ip_port(ui, &mut output_settings.udp.ip, &mut output_settings.udp.port, imgui_str);
         },
 
         StreamOption::TcpClient => {
             ui.text(im_str!("Select Tcp Client Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut output_settings.tcp_client.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut output_settings.tcp_client.port);
+            ui_ip_port(ui, &mut output_settings.tcp_client.ip, &mut output_settings.tcp_client.port, imgui_str);
         },
 
         StreamOption::TcpServer => {
             ui.text(im_str!("Select Tcp Server Socket Parameters:"));
             ui.columns(2, im_str!("UdpSocketCols"), false);
-            input_string(&ui, im_str!("IP"), &mut output_settings.tcp_server.ip, imgui_str);
-            ui.next_column();
-            input_port(&ui, im_str!("Port"), &mut output_settings.tcp_server.port);
+            ui_ip_port(ui, &mut output_settings.tcp_server.ip, &mut output_settings.tcp_server.port, imgui_str);
         },
     }
 
     ui.next_column();
+    filter_apids_ui(ui, allowed_output_apids, imgui_str);
+}
+
+fn filter_apids_ui(ui: &Ui, allowed_apids: &mut Option<Vec<u16>>, imgui_str: &mut ImString) {
     let mut filter_apids = allowed_apids.is_some();
 
     ui.checkbox(im_str!("Filter APIDs"), &mut filter_apids);
@@ -1035,10 +1078,7 @@ fn output_stream_ui(ui: &Ui,
         input_string(&ui, im_str!("Allowed APIDs"), &mut apid_list_str, imgui_str);
         apid_list.clear();
         for apid_str in apid_list_str.split(",") {
-            match apid_str.parse() {
-                Ok(apid) => apid_list.push(apid),
-                Err(_) => {},
-            }
+            apid_str.parse().map(|apid| apid_list.push(apid));
         }
         *allowed_apids = Some(apid_list);
     } else {
@@ -1047,32 +1087,13 @@ fn output_stream_ui(ui: &Ui,
 }
 
 fn load_config(file_name: &String) -> Option<AppConfig> {
-    let result: Option<AppConfig>;
+    let mut file = File::open(file_name).ok()?;
 
-    match File::open(file_name) {
-        Ok(file_opened) => {
-            let mut file = file_opened;
-            let mut config_str = String::new();
+    let mut config_str = String::new();
 
-            file.read_to_string(&mut config_str).unwrap();
+    file.read_to_string(&mut config_str).unwrap();
 
-            match serde_json::from_str(&config_str) {
-                Ok(config) => {
-                    result = Some(config);
-                }
-
-                Err(_) => {
-                    result = None;
-                }
-            }
-        },
-
-        Err(_) => {
-            result = None;
-        },
-    }
-
-    result
+    serde_json::from_str(&config_str).ok()
 }
 
 fn save_config(config: &AppConfig, config_file_name: &String) {

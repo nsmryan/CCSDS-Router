@@ -72,4 +72,5 @@ and saved/loaded. The configuration can be loaded on the command line or through
 The application logs information about its operation and the actions of the operator in a directory called
 log, with log files 'ccsds\_router\_log\_YYYYMMDD\_HH\_MM\_SS.log'.
 
-
+# License
+CCSDS Router is licensed under either MIT or APACHE2, whichever you prefer.
