@@ -33,50 +33,29 @@ impl StreamOption {
 
         match self {
             StreamOption::File => {
-                match File::open(input_settings.file.file_name.clone()) {
-                    Ok(file) => {
-                        let mut file = BufReader::new(file);
-                        result = Ok(ReadStream::File(file));
-                    },
-
-                    Err(e) => {
-                        result = Err(format!("File open error for reading: {}", e));
-                    },
-                }
+                result = File::open(input_settings.file.file_name.clone())
+                         .map(|file| ReadStream::File(BufReader::new(file)))
+                         .map_err(|err| format!("File open error for reading: {}", err));
             },
 
             StreamOption::TcpClient => {
                 let addr = SocketAddrV4::new(input_settings.tcp_client.ip.parse().unwrap(),
-                input_settings.tcp_client.port);
-                let stream_conn = TcpStream::connect(&addr);
-                match stream_conn {
-                    Ok(mut sock) => {
-                        result = Ok(ReadStream::Tcp(sock));
-                    }, 
-
-                    Err(e) => {
-                        result = Err(format!("TCP Client Open Error: {}", e));
-                    },
-                }
+                                             input_settings.tcp_client.port);
+                result = TcpStream::connect(&addr)
+                         .map(|sock| ReadStream::Tcp(sock))
+                         .map_err(|err| format!("TCP Client Open Error: {}", err));
             },
 
             StreamOption::TcpServer => {
                 let addr = SocketAddrV4::new(input_settings.tcp_server.ip.parse().unwrap(),
                 input_settings.tcp_server.port);
                 let listener = TcpListener::bind(&addr).unwrap();
-                match listener.accept() {
-                    Ok((mut sock, _)) => {
-                        result = Ok(ReadStream::Tcp(sock));
-                    }, 
-
-                    Err(e) => {
-                        result = Err(format!("TCP Server Open Error: {}", e));
-                    },
-                }
+                let (sock, _) = listener.accept().map_err(|err| format!("TCP Server Open Error: {}", err))?;
+                result = Ok(ReadStream::Tcp(sock));
             },
 
             StreamOption::Udp => {
-                let sock = UdpSocket::bind("0.0.0.0:0").expect("couldn't bind to udp address/port");
+                let sock = UdpSocket::bind("0.0.0.0:0").map_err(|err| "couldn't bind to udp address/port")?;
                 result = Ok(ReadStream::Udp(sock));
             },
         }
