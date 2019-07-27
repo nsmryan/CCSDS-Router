@@ -49,7 +49,6 @@ extern crate bytes;
 extern crate byteorder;
 
 extern crate num;
-#[macro_use] extern crate num_derive;
 
 extern crate serde;
 extern crate serde_json;
@@ -67,6 +66,7 @@ extern crate floating_duration;
 extern crate hexdump;
 
 extern crate ctrlc;
+extern crate backplane;
 
 extern crate sdl2;
 extern crate imgui;
@@ -96,10 +96,9 @@ use structopt::*;
 
 use hexdump::*;
 
-use imgui::*;
+use backplane::*;
 
-mod stream;
-use stream::*;
+use imgui::*;
 
 mod types;
 use types::*;
@@ -232,10 +231,10 @@ fn main() {
                     break;
                 },
 
-                GuiMessage::PacketUpdate(packet_update) => {
+                GuiMessage::PacketUpdate(_packet_update) => {
                 },
 
-                GuiMessage::PacketDropped(header) => {
+                GuiMessage::PacketDropped(_header) => {
                 },
 
                 GuiMessage::Finished => {
@@ -452,7 +451,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     packet_recv_bytes += packet_length;
                 },
 
-                GuiMessage::PacketDropped(header) => {
+                GuiMessage::PacketDropped(_header) => {
                     processing_stats.packets_dropped += 1;
                 },
 
@@ -1078,7 +1077,7 @@ fn filter_apids_ui(ui: &Ui, allowed_apids: &mut Option<Vec<u16>>, imgui_str: &mu
         input_string(&ui, im_str!("Allowed APIDs"), &mut apid_list_str, imgui_str);
         apid_list.clear();
         for apid_str in apid_list_str.split(",") {
-            apid_str.parse().map(|apid| apid_list.push(apid));
+            apid_str.parse().map(|apid| apid_list.push(apid)).unwrap();
         }
         *allowed_apids = Some(apid_list);
     } else {

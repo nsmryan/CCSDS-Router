@@ -40,4 +40,4 @@ itertools = "0.8"
 ctrlc = "3.1"
 
 ccsds_primary_header="0.10.4"
-backplane = "0.0.1"
+backplane = { git = "https://github.com/nsmryan/backplane" }

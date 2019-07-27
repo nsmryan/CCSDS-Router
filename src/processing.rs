@@ -8,11 +8,12 @@ use std::cmp::min;
 use bytes::{Buf};
 use byteorder::{LittleEndian};
 
+use backplane::*;
+
 use ccsds_primary_header::primary_header::*;
 use ccsds_primary_header::parser::{CcsdsParser, CcsdsParserConfig};
 
 use types::*;
-use stream::*;
 
 
 #[derive(Debug, Clone)]
@@ -33,12 +34,19 @@ struct TimeState {
   last_send_time: SystemTime,
 }
 
+/// The packet structure contains the data for a packet, as well as the primary header
+#[derive(Debug, Clone)]
+pub struct Packet {
+    pub header: CcsdsPrimaryHeader,
+    pub bytes:  Vec<u8>,
+}
+
 
 fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                        read_stream_settings: StreamSettings,
                        input_selection: StreamOption,
                        ccsds_parser_config: CcsdsParserConfig) {
-    match input_selection.open_input(&read_stream_settings) {
+    match read_stream_settings.open_input(&input_selection) {
         Ok(ref mut in_stream) => {
             let mut ccsds_parser = CcsdsParser::with_config(ccsds_parser_config.clone());
             ccsds_parser.bytes.reserve(4096);
@@ -113,7 +121,7 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
             }
         },
 
-        Err(e) => {
+        Err(_) => {
             packet_sender.send(PacketMsg::StreamOpenError).unwrap();
         }
     }
@@ -250,11 +258,6 @@ fn determine_timeout(time_state: &mut TimeState,
 }
 
 fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
-    let frame_settings = app_config.frame_settings.clone();
-    let input_settings = app_config.input_settings;
-    let input_selection = app_config.input_selection;
-    let packet_size = app_config.packet_size;
-
     let mut ccsds_parser_config: CcsdsParserConfig = CcsdsParserConfig::new();
 
     ccsds_parser_config.allowed_apids = app_config.allowed_input_apids.clone();
@@ -275,10 +278,10 @@ fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
 
     ccsds_parser_config.little_endian_header = app_config.little_endian_ccsds;
 
-    let input_stream_thread = thread::spawn(move || {
+    let _input_stream_thread = thread::spawn(move || {
         input_stream_thread(sender,
-                            input_settings,
-                            input_selection,
+                            app_config.input_settings,
+                            app_config.input_selection,
                             ccsds_parser_config);
     });
 }
@@ -287,14 +290,7 @@ fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
 pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingMsg>) {
     let mut state: ProcessingState = ProcessingState::Idle;
   
-    let packet: Packet
-        = Packet { header: Default::default(),
-                   bytes: Vec::with_capacity(4096),
-    };
-
     let mut output_streams = vec!();
-
-    let mut endianness: Endianness = Endianness::Little;
 
     let mut timeout: Duration;
 
@@ -313,18 +309,10 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                     Some(ProcessingMsg::Start(config)) => {
                         app_config = config;
 
-                        // get endianness to use
-                        if app_config.little_endian_ccsds {
-                            endianness = Endianness::Little;
-                        }
-                        else {
-                            endianness = Endianness::Big;
-                        }
-
                         // open streams
                         for index in 0..app_config.output_settings.len() {
-                            let output_stream = app_config.output_selection[index]
-                                                .open_output(&app_config.output_settings[index]);
+                            let output_stream = app_config.output_settings[index]
+                                                .open_output(&app_config.output_selection[index]);
                                                                    
                             match output_stream {
                                 Ok(stream) => {
@@ -474,7 +462,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                                 }
                                 
                                 if apid_allowed {
-                                    output_streams[index].stream_send(&packet.bytes);
+                                    output_streams[index].stream_send(&packet.bytes).unwrap();
                                 }
                             }
 
