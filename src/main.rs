@@ -466,7 +466,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
         }
 
         if packet_recv_diffs.len() > 0 &&
-              SystemTime::now().duration_since(*packet_recv_diffs.get(0).unwrap()).unwrap() > Duration::from_secs(1) {
+           SystemTime::now().duration_since(*packet_recv_diffs.get(0).unwrap()).unwrap() > Duration::from_secs(1) {
             processing_stats.packets_per_second = packet_recv_diffs.len();
             processing_stats.bytes_per_second = packet_recv_bytes;
             packet_recv_diffs.clear();
@@ -592,6 +592,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
                     ui.text("Exit the application?");
                     if ui.small_button(im_str!("Exit")) {
                         sender.send(ProcessingMsg::Terminate).unwrap();
+                        info!("Application exit message sent");
                     }
 
                     ui.same_line(0.0);

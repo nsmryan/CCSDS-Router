@@ -9,6 +9,7 @@ use bytes::{Buf};
 use byteorder::{LittleEndian};
 
 use backplane::*;
+use backplane::stream_read::StreamReadResult;
 
 use ccsds_primary_header::primary_header::*;
 use ccsds_primary_header::parser::{CcsdsParser, CcsdsParserConfig};
@@ -61,12 +62,17 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                 let current_num_bytes = ccsds_parser.bytes.len();
                 let num_bytes_avail = ccsds_parser.bytes.capacity();
                 match in_stream.stream_read(&mut ccsds_parser.bytes, num_bytes_avail - current_num_bytes) {
-                    Err(e) => {
+                    StreamReadResult::Error(e) => {
                         packet_sender.send(PacketMsg::ReadError(e)).unwrap();
                         break;
                     },
 
-                    _ => {
+                    StreamReadResult::Finished => {
+                        info!("Stream reports that it is finished");
+                        break 'processing_loop;
+                    }
+
+                    StreamReadResult::BytesRead(_byte_read) => {
                         // loop, reading all new packets and sending them along.
                         // if there are no new packets, go back to reading the stream for bytes
                         let mut any_packets = false;
