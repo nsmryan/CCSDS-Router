@@ -284,6 +284,8 @@ fn start_input_thread(app_config: AppConfig, sender: SyncSender<PacketMsg>) {
 
     ccsds_parser_config.little_endian_header = app_config.little_endian_ccsds;
 
+    dbg!(&ccsds_parser_config);
+
     let _input_stream_thread = thread::spawn(move || {
         input_stream_thread(sender,
                             app_config.input_settings,
