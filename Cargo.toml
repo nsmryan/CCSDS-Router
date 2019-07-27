@@ -4,13 +4,14 @@ version = "0.1.0"
 authors = ["Noah Ryan <nsmryan@gmail.com>"]
 license = "MIT"
 repository = "homepage='https://github.com/nsmryan/CCSDS-Router'"
+categories=["network-programming"]
 
 [dependencies]
-imgui-sdl2 = "0.3.1"
-imgui = "0.0.21"
+imgui-sdl2 = "0.5"
+imgui = "0.0.22"
 sdl2 = "0.32.1"
 gl = "0.10.0"
-imgui-opengl-renderer = "0.3"
+imgui-opengl-renderer = "0.4"
 
 bytes = "0.4"
 byteorder = "1.2"
@@ -38,4 +39,5 @@ itertools = "0.8"
 
 ctrlc = "3.1"
 
-ccsds_primary_header="0.10.2"
+ccsds_primary_header="0.10.4"
+backplane = "0.0.1"

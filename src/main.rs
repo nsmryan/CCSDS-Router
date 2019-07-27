@@ -475,7 +475,7 @@ fn run_gui(config: &mut AppConfig, config_file_name: &mut String, receiver: Rece
         }
 
         /* IMGUI UI */
-        let ui = imgui_sdl2.frame(&window, &mut imgui, &event_pump);
+        let ui = imgui_sdl2.frame(&window, &mut imgui, &event_pump.mouse_state());
 
         ui.window(im_str!(""))
             .position((0.0, 0.0), ImGuiCond::FirstUseEver)

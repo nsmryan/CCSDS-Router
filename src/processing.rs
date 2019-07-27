@@ -38,7 +38,7 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                        read_stream_settings: StreamSettings,
                        input_selection: StreamOption,
                        ccsds_parser_config: CcsdsParserConfig) {
-    match open_input_stream(&read_stream_settings, input_selection) {
+    match input_selection.open_input(&read_stream_settings) {
         Ok(ref mut in_stream) => {
             let mut ccsds_parser = CcsdsParser::with_config(ccsds_parser_config.clone());
             ccsds_parser.bytes.reserve(4096);
@@ -52,7 +52,7 @@ fn input_stream_thread(packet_sender: SyncSender<PacketMsg>,
                 // NOTE magic number 4096 is used.
                 let current_num_bytes = ccsds_parser.bytes.len();
                 let num_bytes_avail = ccsds_parser.bytes.capacity();
-                match stream_read(in_stream, &mut ccsds_parser.bytes, num_bytes_avail - current_num_bytes) {
+                match in_stream.stream_read(&mut ccsds_parser.bytes, num_bytes_avail - current_num_bytes) {
                     Err(e) => {
                         packet_sender.send(PacketMsg::ReadError(e)).unwrap();
                         break;
@@ -323,8 +323,9 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
 
                         // open streams
                         for index in 0..app_config.output_settings.len() {
-                            let output_stream = open_output_stream(&app_config.output_settings[index],
-                                                                   app_config.output_selection[index]);
+                            let output_stream = app_config.output_selection[index]
+                                                .open_output(&app_config.output_settings[index]);
+                                                                   
                             match output_stream {
                                 Ok(stream) => {
                                     output_streams.push(stream)
@@ -473,7 +474,7 @@ pub fn process_thread(sender: Sender<GuiMessage>, receiver: Receiver<ProcessingM
                                 }
                                 
                                 if apid_allowed {
-                                    stream_send(&mut output_streams[index], &packet.bytes);
+                                    output_streams[index].stream_send(&packet.bytes);
                                 }
                             }
 
